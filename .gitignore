@@ -1,4 +1,5 @@
 fetch
+tests/shared
 debian/files
 debian/.debhelper/
 debian/fetch/

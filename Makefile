@@ -20,6 +20,13 @@ install: fetch
 	install -m 755 fetch $(DESTDIR)$(PREFIX)/bin/fetch
 
 clean:
-	rm -f fetch
+	rm -f fetch tests/shared
 
-.PHONY: install clean
+tests/shared: tests/shared.c fetch.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
+
+test: fetch tests/shared
+	./tests/shared
+	python3 tests/posix.py
+
+.PHONY: install clean test

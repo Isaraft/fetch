@@ -20,6 +20,7 @@
 #include <time.h>
 #include <limits.h>
 #include <ctype.h>
+#include <errno.h>
 
 #ifdef __APPLE__
 #include <sys/sysctl.h>
@@ -94,6 +95,35 @@ static int term_rows = 0;
 #ifndef FETCH_VERSION
 #define FETCH_VERSION "dev"
 #endif
+
+static int parse_number(const char *option, const char *text, float min,
+                        float max, float *out) {
+  char *end;
+  errno = 0;
+  float value = strtof(text, &end);
+  if (end == text || *end || errno == ERANGE || !isfinite(value) ||
+      value < min || value > max) {
+    fprintf(stderr, "fetch: %s requires a finite number from %g to %g (got '%s')\n",
+            option, min, max, text);
+    return 0;
+  }
+  *out = value;
+  return 1;
+}
+
+static int parse_integer(const char *option, const char *text, int min,
+                         int max, int *out) {
+  char *end;
+  errno = 0;
+  long value = strtol(text, &end, 10);
+  if (end == text || *end || errno == ERANGE || value < min || value > max) {
+    fprintf(stderr, "fetch: %s requires an integer from %d to %d (got '%s')\n",
+            option, min, max, text);
+    return 0;
+  }
+  *out = (int)value;
+  return 1;
+}
 
 // --- UTF-8 helpers ---
 
@@ -908,7 +938,8 @@ static int is_refresh_pass = 0;     // 1 during the animation refresh tick
 static char label_color[16] = "35"; // default magenta
 static int config_height = 0;       // 0 = auto (match info lines)
 static float size_scale = 1.0f;
-static float config_speed = 0.0f; // 0 = use flag/default
+static float config_speed = 0.0f;
+static int config_speed_set = 0;
 static int config_spin_x = -1;    // -1 = use flag/default
 static int config_spin_y = -1;
 static int config_box = 0;        // 0 = off (default), 1 = on
@@ -1025,25 +1056,20 @@ static void load_config(void) {
     if (strncmp(line, "height=", 7) == 0) {
       char *val = line + 7;
       strip_inline_hint(val);
-      config_height = atoi(val);
-      if (config_height > MAX_HEIGHT)
-        config_height = MAX_HEIGHT;
+      parse_integer("height", val, 1, MAX_HEIGHT, &config_height);
       continue;
     }
     if (strncmp(line, "size=", 5) == 0) {
       char *val = line + 5;
       strip_inline_hint(val);
-      size_scale = atof(val);
-      if (size_scale < 0.5f)
-        size_scale = 0.5f;
-      if (size_scale > 5.0f)
-        size_scale = 5.0f;
+      parse_number("size", val, 0.5f, 5.0f, &size_scale);
       continue;
     }
     if (strncmp(line, "speed=", 6) == 0) {
       char *val = line + 6;
       strip_inline_hint(val);
-      config_speed = atof(val);
+      if (parse_number("speed", val, -1000.0f, 1000.0f, &config_speed))
+        config_speed_set = 1;
       continue;
     }
     if (strncmp(line, "spin=", 5) == 0) {
@@ -1081,10 +1107,8 @@ static void load_config(void) {
     if (strncmp(line, "depth=", 6) == 0) {
       char *val = line + 6;
       strip_inline_hint(val);
-      config_depth = atof(val);
-      if (config_depth < 0.1f) config_depth = 0.1f;
-      if (config_depth > 10.0f) config_depth = 10.0f;
-      depth_user_set = 1;
+      if (parse_number("depth", val, 0.1f, 10.0f, &config_depth))
+        depth_user_set = 1;
       continue;
     }
     if (strncmp(line, "logo_outer=", 11) == 0) {
@@ -1279,6 +1303,8 @@ static void add_info(const char *label, const char *fmt, ...) {
     fetch_lines[idx][MAX_LINE_LEN - 1] = '\0';
     return;
   }
+  if (fetch_line_count >= MAX_FETCH_LINES)
+    return;
   if (current_field >= 0)
     field_line[current_field] = fetch_line_count;
   add_line(line);
@@ -1299,12 +1325,19 @@ static void box_wrap_lines(void) {
     if (w > max_w)
       max_w = w;
   }
+  if (max_w > (MAX_LINE_LEN - 16) / 3)
+    max_w = (MAX_LINE_LEN - 16) / 3;
   box_width = max_w;
 
   char content[MAX_FETCH_LINES][MAX_LINE_LEN];
   int content_count = fetch_line_count - start;
-  for (int i = 0; i < content_count; i++)
-    strncpy(content[i], fetch_lines[start + i], MAX_LINE_LEN - 1);
+  if (content_count > MAX_FETCH_LINES - start - 2)
+    content_count = MAX_FETCH_LINES - start - 2;
+  for (int i = 0; i < content_count; i++) {
+    char *p = emit_clipped(content[i], content[i] + MAX_LINE_LEN - 1,
+                           fetch_lines[start + i], max_w);
+    *p = '\0';
+  }
 
   char border[MAX_LINE_LEN];
   char *bp = border;
@@ -1334,8 +1367,12 @@ static void box_wrap_lines(void) {
   fetch_line_count = out;
 
   for (int i = 0; i < F_COUNT; i++)
-    if (field_line[i] >= start)
-      field_line[i] += 1;
+    if (field_line[i] >= start) {
+      if (field_line[i] < start + content_count)
+        field_line[i] += 1;
+      else
+        field_line[i] = -1;
+    }
 }
 
 // Runs `<bin> --version` and extracts the first version-looking token
@@ -3818,16 +3855,16 @@ static void build_points(void) {
       float dhdx = 0, dhdy = 0;
       if (c > 0 && c < logo_cols - 1)
         dhdx = (hmap[r][c + 1] - hmap[r][c - 1]) * 0.5f;
-      else if (c == 0)
+      else if (c == 0 && logo_cols > 1)
         dhdx = hmap[r][c + 1] - hmap[r][c];
-      else
+      else if (c > 0)
         dhdx = hmap[r][c] - hmap[r][c - 1];
 
       if (r > 0 && r < logo_rows - 1)
         dhdy = (hmap[r + 1][c] - hmap[r - 1][c]) * 0.5f;
-      else if (r == 0)
+      else if (r == 0 && logo_rows > 1)
         dhdy = hmap[r + 1][c] - hmap[r][c];
-      else
+      else if (r > 0)
         dhdy = hmap[r][c] - hmap[r - 1][c];
 
       dhdx /= sx;
@@ -4060,6 +4097,8 @@ int main(int argc, char **argv) {
   const char *shading = NULL;
   const char *shading_mode = NULL;
   int box_flag = 0;
+  int speed_set = 0, height_set = 0, size_set = 0, depth_set = 0;
+  int rotation_set = 0;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
@@ -4141,9 +4180,11 @@ int main(int argc, char **argv) {
       }
       logo_name = argv[++i];
     } else if (strcmp(argv[i], "--rotate-x") == 0) {
+      rotation_set = 1;
       rotate_x = 1;
       rotate_y = 0;
     } else if (strcmp(argv[i], "--rotate-y") == 0) {
+      rotation_set = 1;
       rotate_x = 0;
       rotate_y = 1;
     } else if (strcmp(argv[i], "--speed") == 0 || strcmp(argv[i], "-s") == 0) {
@@ -4151,7 +4192,10 @@ int main(int argc, char **argv) {
         fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      speed = atof(argv[++i]);
+      const char *option = argv[i];
+      if (!parse_number(option, argv[++i], -1000.0f, 1000.0f, &speed))
+        return 1;
+      speed_set = 1;
     } else if (strcmp(argv[i], "--no-info") == 0) {
       show_info = 0;
     } else if (strcmp(argv[i], "--no-color") == 0) {
@@ -4161,7 +4205,9 @@ int main(int argc, char **argv) {
         fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      max_frames = atoi(argv[++i]);
+      const char *option = argv[i];
+      if (!parse_integer(option, argv[++i], 0, INT_MAX, &max_frames))
+        return 1;
     } else if (strcmp(argv[i], "--infinite") == 0) {
       max_frames = 0;
     } else if (strcmp(argv[i], "--shading-chars") == 0) {
@@ -4181,29 +4227,28 @@ int main(int argc, char **argv) {
         fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      config_height = atoi(argv[++i]);
-      if (config_height > MAX_HEIGHT)
-        config_height = MAX_HEIGHT;
+      const char *option = argv[i];
+      if (!parse_integer(option, argv[++i], 1, MAX_HEIGHT, &config_height))
+        return 1;
+      height_set = 1;
     } else if (strcmp(argv[i], "--size") == 0) {
       if (i + 1 >= argc) {
         fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      size_scale = atof(argv[++i]);
-      if (size_scale < 0.5f)
-        size_scale = 0.5f;
-      if (size_scale > 5.0f)
-        size_scale = 5.0f;
+      const char *option = argv[i];
+      if (!parse_number(option, argv[++i], 0.5f, 5.0f, &size_scale))
+        return 1;
+      size_set = 1;
     } else if (strcmp(argv[i], "--depth") == 0) {
       if (i + 1 >= argc) {
         fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      config_depth = atof(argv[++i]);
-      if (config_depth < 0.1f)
-        config_depth = 0.1f;
-      if (config_depth > 10.0f)
-        config_depth = 10.0f;
+      const char *option = argv[i];
+      if (!parse_number(option, argv[++i], 0.1f, 10.0f, &config_depth))
+        return 1;
+      depth_set = 1;
       depth_user_set = 1;
     } else if (strcmp(argv[i], "--box") == 0) {
       box_flag = 1;
@@ -4213,8 +4258,13 @@ int main(int argc, char **argv) {
     }
   }
 
+  int cli_height = config_height;
+  float cli_size = size_scale, cli_depth = config_depth;
   config_defaults();
   load_config();
+  if (height_set) config_height = cli_height;
+  if (size_set) size_scale = cli_size;
+  if (depth_set) config_depth = cli_depth;
   get_term_size(&term_rows, &term_cols);
 
   // Shading: CLI flags, then config, then the ascii default
@@ -4227,9 +4277,9 @@ int main(int argc, char **argv) {
             shading_mode);
     return 1;
   }
-  if (config_speed > 0 && speed == 1.0f)
+  if (!speed_set && config_speed_set)
     speed = config_speed;
-  if (config_spin_x >= 0 && rotate_x == 1 && rotate_y == 1) {
+  if (config_spin_x >= 0 && !rotation_set) {
     rotate_x = config_spin_x;
     rotate_y = config_spin_y;
   }
@@ -4701,17 +4751,17 @@ int main(int argc, char **argv) {
 
       // Erase to end of line + newline
       if (p + 8 >= end) break;
-      memcpy(p, clr_seq, 4); p += 4;
+      memcpy(p, clr_seq, 3); p += 3;
       *p++ = '\n';
     }
     if (layout_stacked && stacked_info_rows > 0) {
       if (render_height > 0 && p + 8 < end) {
-        memcpy(p, clr_seq, 4); p += 4;
+        memcpy(p, clr_seq, 3); p += 3;
         *p++ = '\n';
       }
       for (int i = 0; i < stacked_info_rows && p + 16 < end; i++) {
         p = emit_clipped(p, end, fetch_lines[i], info_clip_cols);
-        memcpy(p, clr_seq, 4); p += 4;
+        memcpy(p, clr_seq, 3); p += 3;
         *p++ = '\n';
       }
     }
