@@ -8,7 +8,7 @@ Before submitting a PR, run `make test` and make sure everything passes.
 
 ## What makes a good PR
 
-- **Small and focused.** One fix or one feature per PR. If your diff is 500+ lines, it's probably too big — break it up or open an issue first to discuss scope.
+- **Small and focused.** One fix or one feature per PR. If your diff is 500+ lines, it's probably too big. Break it up or open an issue first to discuss scope.
 - **No new dependencies.** Don't add libraries, don't shell out to external tools, don't link anything besides `-lm`.
 - **No unnecessary refactors.** If you're not fixing a bug or adding a feature, don't move code around. "Cleaner" is subjective and adds review burden for no user-facing benefit.
 - **Test your changes.** `make test` runs the C unit tests and Python regression tests. If you're adding a new feature, add a test for it.
@@ -36,7 +36,7 @@ Don't use AI to generate issues, discussion posts, or governance proposals. Cont
 ## Style
 
 - C99, no C++ features
-- Match the existing code style — look at fetch.c before writing
+- Match the existing code style. Look at fetch.c before writing
 - No over-commenting. If the code needs a paragraph to explain, simplify the code
 - Keep error messages short and useful: `fprintf(stderr, "fetch: ...")` format
 
