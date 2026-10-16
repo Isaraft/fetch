@@ -6,7 +6,7 @@
 }:
 
 let
-  cfg = config.programs.fetch;
+  cfg = config.programs.ffetch-3d;
 
   infoFields = [
     "os"
@@ -33,8 +33,8 @@ let
   ];
 in
 {
-  options.programs.fetch = {
-    enable = lib.mkEnableOption "fetch";
+  options.programs.ffetch-3d = {
+    enable = lib.mkEnableOption "FFetch-3D";
 
     info = lib.mkOption {
       type = lib.types.listOf (lib.types.enum infoFields);
@@ -43,17 +43,9 @@ in
     };
 
     labelColor = lib.mkOption {
-      type = lib.types.enum [
-        "red"
-        "green"
-        "yellow"
-        "blue"
-        "magenta"
-        "cyan"
-        "white"
-      ];
+      type = lib.types.str;
       default = "magenta";
-      description = "Color used for info labels.";
+      description = "Label color: named ANSI, numeric SGR, or rgb:R:G:B.";
     };
 
     separator = lib.mkOption {
@@ -126,7 +118,7 @@ in
   config = lib.mkIf cfg.enable {
     home.packages = [ (pkgs.callPackage ./package.nix { }) ];
 
-    xdg.configFile."fetch/config".text =
+    xdg.configFile."ffetch-3d/config".text =
       let
         fieldLines = cfg.info; # drop key
         settingLines = lib.mapAttrsToList (key: value: "${key}=${value}") (

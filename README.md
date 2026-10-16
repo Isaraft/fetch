@@ -1,365 +1,223 @@
-# fetch
+# FFetch-3D
 
-A donut.c-inspired fetch tool that spins your distro logo in 3D with live-updating system info.
+**Give your terminal a pulse.**
 
-![demo](demo.gif)
+FFetch-3D displays system information beside an animated, rotating 3D terminal
+logo. Choose true-color RGB values, spin up a random neon palette, or keep a
+fixed cyan preset. Logo surfaces and information labels share the same color
+when using either launcher.
 
-Takes any ASCII/Unicode distro logo, turns each character into a point cloud
-based on its visual density, and renders it as a rotating 3D relief with
-Blinn-Phong shading. System info is gathered natively with no external
-dependencies. Works on Linux and macOS.
+This is a fork of [areofyl/fetch](https://github.com/areofyl/fetch), based on its
+2.3.0 renderer. The original project provides the point-cloud renderer, system
+information collectors, logo loading, and animation. FFetch-3D builds on that
+work with RGB customization, neon launchers, and maintenance improvements.
 
-Based on [gentoo.c](https://github.com/areofyl/gentoo.c).
+![Arch logo rendered in cyan with synchronized labels](assets/screenshot.png)
 
-## Build & run
+*Cyan blocks preview captured from this renderer; example information fields
+and a sanitized title. The inherited [upstream animation](demo.gif) illustrates
+rotation, rather than the fork's neon palette.*
 
-```
+## Features
+
+- Animated ASCII/Unicode logos, with optional Fastfetch logo loading.
+- 24-bit `rgb:R:G:B` colors for logo faces, extruded sides, and info labels.
+- Twelve original neon colors, selected independently for each launch.
+- A fixed cyan preset, plus named ANSI colors and numeric SGR parameters.
+- ASCII ramps, 2×2 quadrant blocks, and 2×3 sextants.
+- Configurable rotation, speed, scale, depth, lighting, fields, and borders.
+- Responsive side-by-side and stacked layouts with a stable two-row logo offset.
+- Separate executable and configuration names, so the fork can coexist with Fetch.
+
+## Build and install
+
+Build requirements: a C compiler, GNU Make, and the platform math library.
+The launchers require Bash. Tests require Python 3.9+ and POSIX pseudo terminals.
+A UTF-8 terminal with 24-bit color support is needed for the intended appearance.
+Glyph coverage depends on your terminal and font, especially for sextants.
+
+Build from the repository directory:
+
+```sh
 make
-./fetch
+make test
+./ffetch-3d --help
+./scripts/neonfetch --frames 80
 ```
 
-Press any key to stop. The keypress passes through to the shell, so it
-works as a startup fetch. Ctrl-C works too (but is less cool). Click and
-drag the logo to rotate it by hand, release to fling it spinning.
+Fastfetch is needed to select named logos, including the Arch logo selected by
+the launchers. Without it, the renderer falls back to its built-in Gentoo logo.
+Custom `logo.txt` artwork can also be used without Fastfetch.
 
-## Install
+For a user-local install:
 
-```
-sudo make install
-```
-
-`PREFIX=~/.local make install` if you don't want it system-wide.
-
-<details>
-<summary><h2>Package managers</h2></summary>
-
-### Arch Linux (AUR)
-Maintainer: [@PlayRood32](https://github.com/PlayRood32)
-
-You can install `fetch-git` from the AUR using your favorite AUR helper:
-
-```bash
-yay -S fetch-git
-```
-or
-```bash
-paru -S fetch-git
+```sh
+make install PREFIX="$HOME/.local"
 ```
 
-*The `fetch-git` AUR package was not compromised in the AUR package hack. It is maintained and up to date.*
+Ensure `$HOME/.local/bin` is on your `PATH`. Installation creates these commands:
 
-### Nix
-Maintainer: [@Ghastrum](https://github.com/Ghastrum)
+| Command | Behavior |
+| --- | --- |
+| `ffetch-3d` | Renderer with your saved settings |
+| `ffetch-neon` | Arch, blocks, and a random synchronized neon color |
+| `ffetch-arctic` | Arch, blocks, and synchronized cyan |
 
-Fetch is available in **[nixpkgs unstable](https://search.nixos.org/packages?channel=unstable&query=fetch#show=fetch)**, or as a [flake](https://github.com/areofyl/fetch/tree/main/nix).
+The build does not install anything automatically. `make install` installs no
+shell hooks and does not write a user configuration. It also supports `DESTDIR`
+for staging. Documentation and the example config go in
+`PREFIX/share/doc/ffetch-3d/`.
 
-**Try out fetch!**
-```
-nix-shell -p fetch
-```
+The source retains inherited platform-specific collectors, but this fork has
+been built and tested on Arch Linux x86_64 only. Other platforms and packaging
+systems are not yet validated; see [packaging notes](packaging/README.md).
 
-Add to your ```configuration.nix``` or ```home.nix```.
+## Usage
 
-```nix
-environment.systemPackages = [
-  ...
-  pkgs.fetch
-  ...
-];
-```
-
-### Homebrew (macOS)
-Maintainer: [@areofyl](https://github.com/areofyl)
-
-```bash
-brew tap areofyl/fetch
-brew install fetch-git
+```sh
+ffetch-neon
+ffetch-arctic --size 1.5 --height 45
+ffetch-3d -l arch --shading-mode blocks --color rgb:255:0:255
+ffetch-3d -l debian --rotate-y --speed 0.7 --frames 100
+ffetch-3d --no-info --shading-mode ascii
+ffetch-3d --infinite
 ```
 
-### Fedora Linux
-Maintainer: [@RealOrangeKun](https://github.com/RealOrangeKun)
+Any key or Ctrl-C ends the animation. Mouse dragging, inherited from Fetch,
+changes rotation in terminals supporting its mouse protocol.
+The default animation limit is 2,000 frames, with a nominal 50 ms frame delay;
+this is an implementation setting, not a performance guarantee.
 
-You can install `fetch` from COPR:
+The launchers forward all arguments, preserving spaces and argument boundaries.
+Later arguments override their defaults:
 
-```bash
-sudo dnf copr enable realorangekun/fetch
-sudo dnf install fetch
+```sh
+ffetch-neon --logo nixos --size 1.5
+ffetch-arctic --color rgb:255:20:147
+ffetch-neon --config ./examples/config --frames 60
 ```
 
-Or build an RPM package locally:
+`FFETCH_3D_BIN=/path/to/ffetch-3d` can select a particular renderer for a launcher.
+Otherwise launchers look beside themselves, in the repository parent directory,
+and finally on `PATH`. Existing `neonfetch`, `arcticfetch`, and `fetch-neon`
+installations are not replaced by these installation names.
 
-```bash
-sudo dnf install @development-tools
-rpmbuild -ba fetch.spec
-sudo dnf install ~/rpmbuild/RPMS/*/fetch-*.rpm
-```
+## Configuration and RGB
 
-### openSUSE
-Maintainer: [@RealOrangeKun](https://github.com/RealOrangeKun)
+The default config is `$XDG_CONFIG_HOME/ffetch-3d/config`; when that variable is
+unset or relative, it falls back to `$HOME/.config/ffetch-3d/config`.
+An explicit `--config PATH` reads that file instead. Missing explicit files are
+errors. The renderer never writes configuration files.
 
-You can install `fetch` from the Open Build Service:
+To start with the example, copy it to that directory yourself. No config is
+required: built-in defaults apply when the default file is absent.
+Configuration from the original Fetch or local NeonFetch installation is not
+automatically imported.
 
-```bash
-sudo zypper addrepo https://download.opensuse.org/repositories/home:RealOrangeKun/openSUSE_Tumbleweed/home:RealOrangeKun.repo
-sudo zypper refresh
-sudo zypper install fetch
-```
-
-Or build an RPM package locally:
-
-```bash
-sudo zypper install -t pattern devel_basis
-rpmbuild -ba fetch.spec
-sudo zypper install ~/rpmbuild/RPMS/*/fetch-*.rpm
-```
-
-### Ubuntu / Debian
-Maintainer: [@RealOrangeKun](https://github.com/RealOrangeKun)
-
-You can install `fetch` from the PPA:
-
-```bash
-sudo add-apt-repository ppa:realorangekun/fetch
-sudo apt update
-sudo apt install fetch
-```
-
-Or build a `.deb` package locally:
-
-```bash
-sudo apt install build-essential devscripts debhelper
-dpkg-buildpackage -us -uc -b
-sudo apt install ../fetch_*.deb
-```
-
-Or install it with `pacstall`:
-```
-pacstall -I fetch-git
-```
-
-### Gentoo Linux (GURU)
-Maintainer: [@Leb02](https://github.com/Leb02)
-
-You can install `fetch` from the GURU repository using:
-
-```bash
-eselect repository enable guru
-emaint sync -r guru
-emerge -a app-misc/fetch
-```
-
-As for all GURU packages, you will have to add the package in your `package.accept\_keywords` directory if `~arch` is not already set.
-
-</details>
-
-## Logos
-
-Custom logos: [docs/custom-logos.md](docs/custom-logos.md)
-
-By default it auto-detects your distro and grabs the logo from fastfetch
-(if installed) with its original per-character colors preserved. Works with
-any of fastfetch's 500+ distro logos!
-
-You can also specify one directly:
-
-```
-./fetch -l arch
-./fetch -l NixOS
-./fetch -l asahi
-```
-
-Or drop a custom logo in `~/.config/fetch/logo.txt`:
-
-```
-# distro: gentoo
-         -/oyddmdhs+:.
-     -odNMMMMMMMMNNmhy+-`
-...
-```
-
-Without fastfetch, the built-in Gentoo logo is used.
-
-## System info
-
-All system info is gathered natively. No fastfetch or neofetch needed:
-
-- **OS** - `/etc/os-release`
-- **Host** - `/proc/device-tree/model` or `/sys/class/dmi/id/product_name`
-- **Kernel** - `uname()`
-- **Uptime** - `/proc/uptime`
-- **Packages** - emerge, pacman, dpkg, rpm, xbps, apk, flatpak, brew, nixpkgs
-- **Shell** - parent process detection (not just `$SHELL`)
-- **Display** - per-connector DRM enumeration (multi-monitor): active resolution and refresh rate from the CRTC mode, monitor name and physical size from EDID, built-in vs external
-- **WM** - process scanning + DE-to-WM mapping
-- **Display Manager** - process scanning
-- **Theme/Icons/Font** - `~/.config/gtk-3.0/settings.ini`, `~/.gtkrc-2.0`, and Qt (`qt6ct`/`qt5ct`, `~/.config/kdeglobals`) on Linux, `defaults read` (macOS)
-- **Cursor** - `~/.config/gtk-3.0/settings.ini` (Linux only)
-- **CPU** - `/proc/cpuinfo`, device-tree (Apple Silicon), or `sysctl` (macOS)
-- **GPU** - DRM + `lspci` for full names (Linux), `system_profiler` (macOS)
-- **Memory/Swap** - `/proc/meminfo` (Linux), `vm_stat` (macOS)
-- **Disk** - `statvfs()` + `/proc/mounts` (Linux), `getmntinfo` (macOS) – supports multiple mount points via config
-- **Battery** - `energy_now/energy_full` plus `model_name` (Linux), IOKit (macOS)
-- **Power Profile** - `/sys/firmware/acpi/platform_profile`, fallback `powerprofilesctl get 2>/dev/null` (Linux)
-- **Local IP** - `getifaddrs()`
-
-Stats like memory, battery, and uptime update in real-time while the logo spins.
-
-## Config
-
-Full reference: [docs/configuration.md](docs/configuration.md)
-
-Create `~/.config/fetch/config` to customize:
-
-```
-# fields – list to show, in this order
-# remove or comment out to hide
+```ini
 os
-host
 kernel
 uptime
-packages
-shell
-display
-wm
-displaymanager
-theme
-icons
-font
-cursor
-terminal
 cpu
-gpu
 memory
-swap
-disk
-ip
-battery
-powerprofile
-locale
-colors
 
-# separators (blank line between groups)
-# ---
-
-# custom static fields
-# custom_Pronouns=he/him
-# custom_Website=example.com
-
-# extra disks (add more mount points)
-# disk=/home
-# disk=/data
-
-# appearance
-# label_color=magenta   (red, green, yellow, blue, magenta, cyan, white)
-# separator=─           (character for the title separator)
-# shading_mode=ascii    (ascii, or opt into blocks / sextants)
-# shading=.,-~:;=!*#$@  (characters for 3D shading, supports UTF-8)
-# box=0                 (adds a box around the system-data, 0 = off, 1 = on)
-
-# logo colors (override distro defaults)
-# logo_outer=magenta    (extruded side color)
-# logo_inner=white      (front/back face color)
-
-# 3d
-# light=top-left        (top-left, top-right, top, left, right, front, bottom-left, bottom-right)
-# spin=xy               (x, y, or xy)
-# speed=1.0             (rotation speed)
-# size=1.0              (logo scale, e.g. 2.0 for double size)
-# depth=1.0             (3D extrusion depth, e.g. 3.0 for chunkier look)
-# height=36             (override render height in rows)
-# v_alignment=top       (top, center, bottom)
-# h_alignment=left      (left, center, right)
+shading_mode=blocks
+light=top-left
+spin=xy
+size=1.0
+depth=1.5
+logo_outer=rgb:0:255:255
+logo_inner=rgb:0:255:255
+label_color=rgb:0:255:255
 ```
 
-## Options
+RGB components must be unsigned decimal values from 0 to 255, with one to three
+digits each. Signs, extra components, trailing junk, and overflow are rejected.
+Named colors are `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, and `white`.
+Numeric SGR values from 0 through 107 are also accepted; ordinary foreground
+colors are 30–37 and 90–97. Other SGR values can change terminal attributes.
 
-| Flag | Description |
-|------|-------------|
-| `-l`, `--logo <name>` | Use a logo from fastfetch by name |
-| `--rotate-x` | Lock rotation to X axis only |
-| `--rotate-y` | Lock rotation to Y axis only |
-| `-s`, `--speed <float>` | Speed multiplier (default 1.0) |
-| `--size <float>` | Scale the logo (e.g. 2.0 for double size) |
-| `--depth <float>` | Scale the 3D depth (default 1.0) |
-| `--height <n>` | Override render height in rows |
-| `--box` | Draw a border box around the info block |
-| `--no-info` | Just the logo, no system info |
-| `--no-color` | Disable coloring |
-| `--frames <n>` | Stop after n frames |
-| `--infinite` | Run forever |
-| `--shading-mode <mode>` | `ascii` (default), or opt into sub-cell blocks with `sextants` (2x3) or `blocks` (2x2) |
-| `--shading-chars <str>` | Custom shading ramp, supports UTF-8 |
-| `-h`, `--help` | Show help |
-| `-V`, `--version` | Show version |
+Invalid config colors produce a diagnostic and retain the previous value.
+Invalid command-line colors fail before animation starts.
+CLI settings override configuration. Repeated CLI colors apply in order;
+`--color` sets all three colors, while the following options affect one:
 
-CLI flags override config file settings.
+```sh
+ffetch-3d -l arch --color rgb:0:255:255 --logo-inner white --label-color cyan
+```
 
-## Shading modes
+Explicit logo surface colors override embedded logo colors. Without a surface
+override, embedded colors remain available. Labels are independently configurable.
+`--no-color` disables logo coloring only, matching inherited Fetch behavior.
 
-Full reference: [docs/shading-modes.md](docs/shading-modes.md)
+Custom artwork lives at `$XDG_CONFIG_HOME/ffetch-3d/logo.txt`, with the same HOME
+fallback. `--logo NAME` takes precedence over that artwork. `--config` changes
+the config file only, not the default artwork directory.
 
-ASCII is the default. The sub-cell modes are opt-in, and trade the donut.c look
-for a silhouette that lands on a fraction of a cell instead of snapping to the
-character grid.
+See the [configuration reference](docs/configuration.md),
+[custom logo guide](docs/custom-logos.md), and [CLI help](#usage).
 
-| `ascii` (default) | `blocks` | `sextants` |
-|:---:|:---:|:---:|
-| ![ascii](docs/shading-ascii.png) | ![blocks](docs/shading-blocks.png) | ![sextants](docs/shading-sextants.png) |
-| brightness mapped onto `.,-~:;=!*#$@`, one character per cell | coverage sampled 2×2, edges on quadrants | coverage sampled 2×3, edges on block sextants |
+## Neon palette
 
-`sextants` needs a terminal that draws the Symbols for Legacy Computing block
-(kitty, Ghostty, foot and WezTerm do it themselves, so the font does not matter);
-`blocks` works anywhere with a UTF-8 locale.
+Each launch selects one of these twelve original values. Launching concurrent
+windows does not change any saved config or another process's color.
 
-Same logo, same frame, same terminal palette in all three.
+| Color | Hex | RGB |
+| --- | --- | --- |
+| Cyber Pink | `#FF00FF` | `255:0:255` |
+| Electric Cyan | `#00FFFF` | `0:255:255` |
+| Acid Green | `#39FF14` | `57:255:20` |
+| Ultraviolet | `#BF00FF` | `191:0:255` |
+| Hot Pink | `#FF1493` | `255:20:147` |
+| Laser Blue | `#0080FF` | `0:128:255` |
+| Neon Orange | `#FF5F00` | `255:95:0` |
+| Electric Lime | `#CCFF00` | `204:255:0` |
+| Crimson | `#FF1744` | `255:23:68` |
+| Violet | `#8F00FF` | `143:0:255` |
+| Turquoise | `#00FFC8` | `0:255:200` |
+| Gold | `#FFD600` | `255:214:0` |
 
-## Contributing
+## Rendering modes
 
-PRs are welcome! If you want to add a feature, fix a bug, or package fetch for
-your distro, go for it. I try to keep the codebase small and easy to understand,
-so smaller PRs are easier to merge than big ones.
+| Mode | Representation | Considerations |
+| --- | --- | --- |
+| `ascii` | Character brightness ramp | Default; custom ramps via `--shading-chars` |
+| `blocks` | 2×2 quadrant coverage | The neon launchers' default |
+| `sextants` | 2×3 block coverage | Requires suitable Unicode glyph support |
 
-If you want to chat about ideas before writing code, reach out on
-[Reddit](https://www.reddit.com/user/areofyl) or open an issue.
+Use `--shading-mode MODE` or `shading_mode=MODE`. A custom shading ramp implies
+ASCII mode. See [rendering details](docs/shading-modes.md).
 
-## How it works
+## Implementation and development
 
-For a deep dive with visuals and code, see the [full blog post](https://asdesai.com/blog/how-fetch-works/).
+The inherited renderer converts logo characters into a relief point cloud,
+computes surface normals, rotates and projects points, and emits terminal frames
+with depth buffering and lighting. Native collectors supply system information;
+Fastfetch supplies named logo artwork when available.
 
-1. **Logo loading** – reads ASCII/Unicode art from `~/.config/fetch/logo.txt` or
-   grabs a distro logo via fastfetch. ANSI color codes are parsed and preserved
-   per-character.
+FFetch-3D adds a shared validated color parser and real ANSI 24-bit escape
+sequences. Per-process CLI overrides replace launcher writes to shared files.
+The Fastfetch logo subprocess uses direct argument passing. Startup and resize
+share projection calculations and retain the approved `+2.0f` vertical offset.
 
-2. **Heightmap** – each character gets a weight based on visual density (`@` is
-   heavy, `.` is light, `█` is full, `░` is thin). The weight becomes a Z height,
-   turning the flat logo into a 3D relief map. Logos with low height variance
-   (uniform characters) get their depth auto-scaled so they don't look flat.
+```sh
+make test
+make -B CFLAGS='-O2 -Wall -Wextra -Wformat=2'
+```
 
-3. **Point cloud** – the heightmap is sampled into 3D points. Interior cells get
-   multiple Z layers for a solid extrusion, edge cells get only front and back
-   faces to keep outlines clean.
+Tests cover color boundaries and malformed input, subprocess arguments,
+concurrent launchers, CLI precedence, real terminal frames, resize consistency,
+and staged installation. See [development and validation](docs/development.md)
+and [CHANGELOG.md](CHANGELOG.md).
 
-4. **Surface normals** – computed from the height gradient at each cell using
-   finite differences, giving each point a direction for lighting.
+Large scales, extreme depth, or small terminals can still clip rotating geometry.
+The current layout preserves the established visual design; it does not compute
+a rotation-wide bounding volume. Inherited compiler warnings also remain.
 
-5. **Rotation + projection** – every frame, all points are rotated around X/Y
-   axes, then perspective-projected onto the terminal grid with a z-buffer to
-   handle occlusion.
+## Credits and license
 
-6. **Shading** – Blinn-Phong lighting (diffuse + specular) gives every visible
-   point a brightness, which maps onto the `.,-~:;=!*#$@` ramp, one character
-   per cell. `--shading-mode sextants` or `blocks` instead samples coverage
-   finer than the character cell – 2×3 or 2×2 – and each cell picks whichever
-   glyph carries the right amount of ink: a shade block (`░▒▓█`) where the cell
-   is filled, a partial block where the silhouette cuts through it. So an edge
-   lands on a fraction of a cell instead of snapping to the character grid.
-
-   Logos that ship their own colors keep them. The rest are two-toned by
-   surface: front and back faces in `logo_inner`, extruded sides in
-   `logo_outer`.
-
-7. **Rendering** – the entire frame is written in a single `write()` syscall to
-   avoid flicker. System info is displayed alongside the animation and
-   fast-changing fields (uptime, memory, swap) update live every second.
-
-Single file C, no dependencies beyond libm.
+Based on [areofyl/fetch](https://github.com/areofyl/fetch), copyright © 2026 areofyl.
+The original renderer was not written from scratch for FFetch-3D.
+Upstream history, its ISC copyright and permission notice, documentation, and
+original demo are retained. The fork's changes are distributed under the same
+[ISC license](LICENSE).

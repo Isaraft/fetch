@@ -8,7 +8,7 @@
 }:
 
 stdenv.mkDerivation (finalAttrs: {
-  pname = "fetch";
+  pname = "ffetch-3d";
   version = lib.fileContents ../VERSION;
   __structuredAttrs = true;
   strictDeps = true;
@@ -18,19 +18,16 @@ stdenv.mkDerivation (finalAttrs: {
   makeFlags = [ "PREFIX=${placeholder "out"}" ];
   nativeBuildInputs = [ makeWrapper ];
   postInstall = ''
-    wrapProgram $out/bin/fetch \
+    wrapProgram $out/bin/ffetch-3d \
     --prefix PATH : ${
       lib.makeBinPath ([ fastfetch ] ++ lib.optionals stdenv.hostPlatform.isLinux [ pciutils ])
     }
   '';
 
   meta = {
-    description = "Animated 3D fetch tool that renders your distro logo as a spinning bas-relief";
-    homepage = "https://github.com/areofyl/fetch";
-    changelog = "https://github.com/areofyl/fetch/releases/tag/v${finalAttrs.version}";
+    description = "Animated 3D terminal logos with synchronized neon RGB colors";
     license = lib.licenses.isc;
-    maintainers = with lib.maintainers; [ ghastrum ];
-    mainProgram = "fetch";
+    mainProgram = "ffetch-3d";
     platforms = lib.platforms.unix;
   };
 })

@@ -9,6 +9,9 @@
 - Dedicated `ffetch-3d`, `ffetch-neon`, and `ffetch-arctic` installation names
   and an independent XDG configuration directory.
 - Automated RGB validation and concurrent launcher tests.
+- English documentation, a cyan rendering preview, and development notes.
+- Preserve inactive upstream package recipes separately; adapt Nix names
+  without claiming untested packaging support.
 
 ### Fixed
 

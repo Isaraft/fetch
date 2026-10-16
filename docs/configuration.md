@@ -1,6 +1,23 @@
 # Configuration
 
-fetch is configured through `~/.config/fetch/config`. If the file doesn't exist, all fields are shown in the default order.
+FFetch-3D is configured through `~/.config/ffetch-3d/config`. If the file doesn't exist, all fields are shown in the default order.
+
+The directory follows `$XDG_CONFIG_HOME/ffetch-3d` when `XDG_CONFIG_HOME` is
+absolute; otherwise it uses `$HOME/.config/ffetch-3d`. `--config PATH` selects
+an explicit file. CLI settings override configuration; launchers never write
+this file. An existing config controls field order, including an empty file.
+
+```ini
+logo_outer=rgb:0:255:255
+logo_inner=rgb:0:255:255
+label_color=rgb:0:255:255
+```
+
+RGB components must have one to three decimal digits, each in 0–255. Invalid
+colors are diagnosed and ignored, retaining the previous value. CLI colors
+are strict and cause failure on invalid input. `--color VALUE` sets all three;
+`--logo-outer`, `--logo-inner`, and `--label-color` set individual colors.
+Later color flags override earlier ones.
 
 ## Fields
 
@@ -65,7 +82,7 @@ These render like built-in fields (`Pronouns: he/him`) with the configured label
 label_color=magenta
 ```
 
-Color of the labels (the "CPU:", "Memory:", etc. text). Accepts: `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, or an ANSI color number.
+Color of the labels (the "CPU:", "Memory:", etc. text). Accepts: `red`, `green`, `yellow`, `blue`, `magenta`, `cyan`, `white`, an ANSI SGR number from 0 to 107, or `rgb:R:G:B` (each component 0–255).
 
 ```
 separator=-
@@ -89,18 +106,18 @@ Custom shading ramp for the 3D rendering. Characters go from dimmest to brightes
 shading_mode=ascii
 ```
 
-Shading mode. `ascii` (default) uses the character ramp. `blocks` uses 2x2 quadrant blocks. `sextants` uses 2x3 sub-cell blocks for the sharpest edges (needs kitty, ghostty, foot, or wezterm). See [shading-modes.md](shading-modes.md).
+Shading mode. `ascii` (default) uses the character ramp. `blocks` uses 2x2 quadrant blocks. `sextants` uses 2x3 sub-cell blocks for the sharpest edges (requires suitable terminal/font glyph support). See [shading-modes.md](shading-modes.md).
 
 ## Logo colors
 
-For logos without their own ANSI colors (custom logos, some distros), you can set two-tone coloring:
+Explicit surface colors override embedded logo colors. Without an override, embedded colors remain available. Set two-tone coloring with:
 
 ```
 logo_outer=magenta
 logo_inner=white
 ```
 
-`logo_outer` is the extruded side color, `logo_inner` is the front/back face color. Accepts the same color names as `label_color`, or an ANSI number.
+`logo_outer` is the extruded side color, `logo_inner` is the front/back face color. Accepts the same color names, numeric SGR values, and RGB syntax as `label_color`.
 
 ## 3D settings
 
@@ -138,7 +155,7 @@ depth=1.0
 height=36
 ```
 
-Override the render height in rows. Default is auto (matches the number of info lines).
+Override the render height in rows (0 means auto; positive values are capped at 200 and constrained by the terminal). Default is auto (matches the number of info lines).
 
 ## Extra disks
 
@@ -157,3 +174,8 @@ Up to 8 extra mount points. Each one adds a line to the info output.
 - You don't need to remove the hint text in parentheses after values (e.g. `label_color=white (red, green, ...)`). The parser strips those automatically, except for `shading=`, `separator=`, and `disk=` which accept freeform strings
 - CLI flags override config file settings
 - If no config file exists, everything uses defaults
+
+## Alignment
+
+`v_alignment=top|center|bottom` and `h_alignment=left|center|right` control
+placement. Padding is clamped to zero when the content exceeds the terminal.

@@ -1,5 +1,5 @@
 {
-  description = "Animated 3D fetch tool for your terminal";
+  description = "Animated 3D terminal logos with neon RGB colors";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -32,7 +32,7 @@
       );
 
       overlays.default = final: prev: {
-        areofyl-fetch = final.callPackage ./nix/package.nix { };
+        ffetch-3d = final.callPackage ./nix/package.nix { };
       };
       homeManagerModules.default = import ./nix/home-module.nix;
     };

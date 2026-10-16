@@ -1,8 +1,8 @@
 fetch
 ffetch-3d
 __pycache__/
-debian/files
-debian/.debhelper/
-debian/fetch/
-debian/*.substvars
-debian/*.debhelper.log
+packaging/upstream/debian/files
+packaging/upstream/debian/.debhelper/
+packaging/upstream/debian/fetch/
+packaging/upstream/debian/*.substvars
+packaging/upstream/debian/*.debhelper.log
