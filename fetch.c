@@ -4885,17 +4885,17 @@ int main(int argc, char **argv) {
 
       // Erase to end of line + newline
       if (p + 8 >= end) break;
-      memcpy(p, clr_seq, 4); p += 4;
+      memcpy(p, clr_seq, 3); p += 3;
       *p++ = '\n';
     }
     if (layout_stacked && stacked_info_rows > 0) {
       if (render_height > 0 && p + 8 < end) {
-        memcpy(p, clr_seq, 4); p += 4;
+        memcpy(p, clr_seq, 3); p += 3;
         *p++ = '\n';
       }
       for (int i = 0; i < stacked_info_rows && p + 16 < end; i++) {
         p = emit_clipped(p, end, fetch_lines[i], info_clip_cols);
-        memcpy(p, clr_seq, 4); p += 4;
+        memcpy(p, clr_seq, 3); p += 3;
         *p++ = '\n';
       }
     }

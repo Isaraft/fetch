@@ -80,6 +80,7 @@ class RuntimeTests(unittest.TestCase):
                 self.assertIn(b"\x1b[38;2;0;255;255m", data)
                 self.assertIn(b"\x1b[1;38;2;0;255;255m", data)
                 self.assertNotIn(b"\\033[", data)
+                self.assertNotIn(b"\x00", data)
 
     def test_embedded_colors_are_used_only_without_an_override(self):
         _, default = self.render(["--frames", "1", "--no-info", "--logo", "test"])
