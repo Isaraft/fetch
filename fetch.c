@@ -905,7 +905,7 @@ static char custom_label[MAX_CUSTOM][64];
 static char custom_value[MAX_CUSTOM][256];
 static int custom_count = 0;
 static int is_refresh_pass = 0;     // 1 during the animation refresh tick
-static char label_color[16] = "35"; // default magenta
+static char label_color[32] = "35"; // default magenta
 static int config_height = 0;       // 0 = auto (match info lines)
 static float size_scale = 1.0f;
 static float config_speed = 0.0f; // 0 = use flag/default
@@ -1000,7 +1000,17 @@ static void load_config(void) {
       continue;
 
     // Check for key=value settings
-    if (strncmp(line, "label_color=", 12) == 0) {
+    if (strncmp(line, "label_color=rgb:", 16) == 0) {
+    int r, g, b;
+    if (sscanf(line + 16, "%d:%d:%d", &r, &g, &b) == 3 &&
+        r >= 0 && r <= 255 &&
+        g >= 0 && g <= 255 &&
+        b >= 0 && b <= 255) {
+        snprintf(label_color, sizeof(label_color),
+                 "38;2;%d;%d;%d", r, g, b);
+    }
+    continue;
+  } else if (strncmp(line, "label_color=", 12) == 0) {
       char *val = line + 12;
       strip_inline_hint(val);
       // Accept color names or numbers
@@ -1087,7 +1097,14 @@ static void load_config(void) {
       depth_user_set = 1;
       continue;
     }
-    if (strncmp(line, "logo_outer=", 11) == 0) {
+    if (strncmp(line, "logo_outer=rgb:", 15) == 0) {
+    int r, g, b;
+    if (sscanf(line + 15, "%d:%d:%d", &r, &g, &b) == 3 &&
+        r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
+        snprintf(config_logo_outer, sizeof(config_logo_outer),
+                 "\033[38;2;%d;%d;%dm", r, g, b);
+    }
+} else if (strncmp(line, "logo_outer=", 11) == 0) {
       char *val = line + 11;
       strip_inline_hint(val);
       if (strcmp(val, "red") == 0) snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;31m");
@@ -1100,7 +1117,14 @@ static void load_config(void) {
       else snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;%sm", val);
       continue;
     }
-    if (strncmp(line, "logo_inner=", 11) == 0) {
+    if (strncmp(line, "logo_inner=rgb:", 15) == 0) {
+    int r, g, b;
+    if (sscanf(line + 15, "%d:%d:%d", &r, &g, &b) == 3 &&
+        r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
+        snprintf(config_logo_inner, sizeof(config_logo_inner),
+                 "\033[38;2;%d;%d;%dm", r, g, b);
+    }
+} else if (strncmp(line, "logo_inner=", 11) == 0) {
       char *val = line + 11;
       strip_inline_hint(val);
       if (strcmp(val, "red") == 0) snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;31m");
@@ -3916,8 +3940,10 @@ static void build_points(void) {
             // sides the outer one. Keying it off the source character weight
             // instead, as this used to, splits logos wherever their ASCII art
             // happens to change density — which is nowhere in particular.
-            PCOLOR[idx] = logo_has_ansi ? logo_cell_color[row][col]
-                                        : (k == 0 || k == layers - 1);
+            PCOLOR[idx] = (config_logo_outer[0] || config_logo_inner[0])
+    ? (k == 0 || k == layers - 1)
+    : (logo_has_ansi ? logo_cell_color[row][col]
+                     : (k == 0 || k == layers - 1));
 
             if (k == 0) {
               NX[idx] = gnx[row][col];
@@ -4277,6 +4303,7 @@ int main(int argc, char **argv) {
 
   // Process logo into codepoint cells
   process_logo();
+  logo_has_ansi = 0;
 
   if (distro[0])
     set_distro_colors(distro);
@@ -4545,9 +4572,7 @@ int main(int argc, char **argv) {
     float cB = cosf(B), sB = sinf(B);
 
     const float lx = light_x, ly = light_y, lz = light_z;
-    const float y_center = (!layout_stacked && show_info)
-                              ? fixed_y_center
-                              : render_height * 0.5f;
+    const float y_center = fixed_y_center + 2.0f;
     const int smax = shading_count - 1;
     const float half_aw = (float)anim_width * 0.5f;
     const float k1x2 = K1 * 2.0f;
@@ -4667,7 +4692,7 @@ int main(int argc, char **argv) {
             *p++ = ' ';
           } else {
             if (c != prev_color) {
-              if (logo_has_ansi && c > 0 && c < 128) {
+              if (logo_has_ansi && !config_logo_outer[0] && !config_logo_inner[0] && c > 0 && c < 128) {
                 // Build ANSI escape lazily on first use
                 if (!ansi_len[c]) {
                   ansi_len[c] = snprintf(ansi_tbl[c], sizeof(ansi_tbl[c]),

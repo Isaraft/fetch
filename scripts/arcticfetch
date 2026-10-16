@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+
+CONFIG="$HOME/.config/fetch/config"
+mkdir -p "$(dirname "$CONFIG")"
+
+# Сохраняем остальные настройки
+touch "$CONFIG"
+sed -i '/^logo_outer=/d; /^logo_inner=/d; /^label_color=/d' "$CONFIG"
+
+cat >> "$CONFIG" <<'SETTINGS'
+logo_outer=rgb:0:255:255
+logo_inner=rgb:0:255:255
+label_color=rgb:0:255:255
+SETTINGS
+
+exec "$HOME/.local/bin/fetch-neon" -l arch --shading-mode blocks

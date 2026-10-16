@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+
+CONFIG="$HOME/.config/fetch/config"
+
+colors=(
+  "255:0:255"    # Magenta
+  "0:255:255"    # Cyan
+  "57:255:20"    # Acid Green
+  "191:0:255"   # Ultraviolet
+  "255:20:147"  # Hot Pink
+  "0:128:255"   # Laser Blue
+  "255:95:0"    # Neon Orange
+  "204:255:0"   # Electric Lime
+  "255:23:68"   # Crimson
+  "143:0:255"   # Violet
+  "0:255:200"   # Turquoise
+  "255:214:0"   # Gold
+)
+
+color=${colors[RANDOM % ${#colors[@]}]}
+
+mkdir -p "$(dirname "$CONFIG")"
+touch "$CONFIG"
+
+sed -i '/^logo_outer=/d; /^logo_inner=/d; /^label_color=/d' "$CONFIG"
+
+cat >> "$CONFIG" <<SETTINGS
+logo_outer=rgb:$color
+logo_inner=rgb:$color
+label_color=rgb:$color
+SETTINGS
+
+exec "$HOME/.local/bin/fetch-neon" -l arch --shading-mode blocks
