@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-
-CONFIG="$HOME/.config/fetch/config"
+# Per-process palette: never edit the user's configuration.
+set -euo pipefail
 
 colors=(
-  "255:0:255"    # Magenta
-  "0:255:255"    # Cyan
-  "57:255:20"    # Acid Green
+  "255:0:255"   # Cyber Pink
+  "0:255:255"   # Electric Cyan
+  "57:255:20"   # Acid Green
   "191:0:255"   # Ultraviolet
   "255:20:147"  # Hot Pink
   "0:128:255"   # Laser Blue
@@ -16,18 +16,16 @@ colors=(
   "0:255:200"   # Turquoise
   "255:214:0"   # Gold
 )
-
 color=${colors[RANDOM % ${#colors[@]}]}
 
-mkdir -p "$(dirname "$CONFIG")"
-touch "$CONFIG"
-
-sed -i '/^logo_outer=/d; /^logo_inner=/d; /^label_color=/d' "$CONFIG"
-
-cat >> "$CONFIG" <<SETTINGS
-logo_outer=rgb:$color
-logo_inner=rgb:$color
-label_color=rgb:$color
-SETTINGS
-
-exec "$HOME/.local/bin/fetch-neon" -l arch --shading-mode blocks
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ -n ${FFETCH_3D_BIN:-} ]]; then
+  binary=$FFETCH_3D_BIN
+elif [[ -x "$script_dir/ffetch-3d" ]]; then
+  binary=$script_dir/ffetch-3d
+elif [[ -x "$script_dir/../ffetch-3d" ]]; then
+  binary=$script_dir/../ffetch-3d
+else
+  binary=ffetch-3d
+fi
+exec "$binary" -l arch --shading-mode blocks --color "rgb:$color" "$@"

@@ -543,12 +543,24 @@ static float char_weight_utf8(const char *ch) {
 
 static char file_distro[64] = "";
 
+static int default_config_path(char *out, size_t cap, const char *file) {
+  const char *base = getenv("XDG_CONFIG_HOME");
+  int n;
+  if (base && base[0] == '/')
+    n = snprintf(out, cap, "%s/ffetch-3d/%s", base, file);
+  else {
+    base = getenv("HOME");
+    if (!base || !*base)
+      return 0;
+    n = snprintf(out, cap, "%s/.config/ffetch-3d/%s", base, file);
+  }
+  return n >= 0 && (size_t)n < cap;
+}
+
 static int load_logo_file(void) {
   char path[512];
-  const char *home = getenv("HOME");
-  if (!home)
+  if (!default_config_path(path, sizeof(path), "logo.txt"))
     return 0;
-  snprintf(path, sizeof(path), "%s/.config/fetch/logo.txt", home);
   FILE *fp = fopen(path, "r");
   if (!fp)
     return 0;
@@ -1010,15 +1022,97 @@ static void config_defaults(void) {
   }
 }
 
-static void load_config(void) {
-  const char *home = getenv("HOME");
-  if (!home)
-    return;
+// Produce SGR parameters only; callers decide whether bold is appropriate.
+// Reject signs, overflow, extra components, and terminal control characters.
+static int parse_color(const char *value, char *out, size_t cap) {
+  static const char *names[] = {
+      "red", "green", "yellow", "blue", "magenta", "cyan", "white"};
+  int n;
+  for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+    if (strcmp(value, names[i]) == 0) {
+      n = snprintf(out, cap, "%d", 31 + (int)i);
+      return n >= 0 && (size_t)n < cap;
+    }
+  }
+  if (strncmp(value, "rgb:", 4) == 0) {
+    const char *p = value + 4;
+    unsigned rgb[3];
+    for (int i = 0; i < 3; i++) {
+      unsigned v = 0;
+      int digits = 0;
+      while (*p >= '0' && *p <= '9') {
+        if (++digits > 3)
+          return 0;
+        v = v * 10 + (unsigned)(*p++ - '0');
+      }
+      if (!digits || v > 255 || (i < 2 ? *p != ':' : *p != '\0'))
+        return 0;
+      rgb[i] = v;
+      if (i < 2) p++;
+    }
+    n = snprintf(out, cap, "38;2;%u;%u;%u", rgb[0], rgb[1], rgb[2]);
+    return n >= 0 && (size_t)n < cap;
+  }
+  unsigned v = 0;
+  int digits = 0;
+  for (const char *p = value; *p; p++) {
+    if (*p < '0' || *p > '9' || ++digits > 3)
+      return 0;
+    v = v * 10 + (unsigned)(*p - '0');
+  }
+  if (!digits || v > 107)
+    return 0;
+  n = snprintf(out, cap, "%u", v);
+  return n >= 0 && (size_t)n < cap;
+}
+
+static int set_color(const char *value, char *out, size_t cap, int logo) {
+  char params[32], formatted[32];
+  if (!parse_color(value, params, sizeof(params)))
+    return 0;
+  int n = logo ? snprintf(formatted, sizeof(formatted),
+                          strncmp(params, "38;2;", 5) == 0 ? "\033[%sm" : "\033[1;%sm", params)
+               : snprintf(formatted, sizeof(formatted), "%s", params);
+  if (n < 0 || (size_t)n >= cap || (size_t)n >= sizeof(formatted))
+    return 0;
+  memcpy(out, formatted, (size_t)n + 1);
+  return 1;
+}
+
+static int parse_float_value(const char *value, float *out) {
+  char *end;
+  errno = 0;
+  float n = strtof(value, &end);
+  if (!*value || *end || errno == ERANGE || !isfinite(n))
+    return 0;
+  *out = n;
+  return 1;
+}
+
+static int parse_nonnegative_int(const char *value, int *out) {
+  if (*value < '0' || *value > '9')
+    return 0;
+  char *end;
+  errno = 0;
+  long n = strtol(value, &end, 10);
+  if (*end || errno == ERANGE || n > INT_MAX)
+    return 0;
+  *out = (int)n;
+  return 1;
+}
+
+static int load_config(const char *requested_path) {
   char path[512];
-  snprintf(path, sizeof(path), "%s/.config/fetch/config", home);
-  FILE *fp = fopen(path, "r");
-  if (!fp)
-    return;
+  if (!requested_path && !default_config_path(path, sizeof(path), "config"))
+    return 1;
+  FILE *fp = fopen(requested_path ? requested_path : path, "r");
+  if (!fp) {
+    if (requested_path || errno != ENOENT) {
+      fprintf(stderr, "ffetch-3d: cannot read config: %s\n", strerror(errno));
+      return 0;
+    }
+    return 1;
+  }
 
   // Config file exists — reset defaults, use file order
   for (int i = 0; i < F_COUNT; i++)
@@ -1039,42 +1133,20 @@ static void load_config(void) {
       continue;
 
     // Check for key=value settings
-    if (strncmp(line, "label_color=rgb:", 16) == 0) {
-    int r, g, b;
-    if (sscanf(line + 16, "%d:%d:%d", &r, &g, &b) == 3 &&
-        r >= 0 && r <= 255 &&
-        g >= 0 && g <= 255 &&
-        b >= 0 && b <= 255) {
-        snprintf(label_color, sizeof(label_color),
-                 "38;2;%d;%d;%d", r, g, b);
-    }
-    continue;
-  } else if (strncmp(line, "label_color=", 12) == 0) {
+    if (strncmp(line, "label_color=", 12) == 0) {
       char *val = line + 12;
       strip_inline_hint(val);
-      // Accept color names or numbers
-      if (strcmp(val, "red") == 0)
-        strcpy(label_color, "31");
-      else if (strcmp(val, "green") == 0)
-        strcpy(label_color, "32");
-      else if (strcmp(val, "yellow") == 0)
-        strcpy(label_color, "33");
-      else if (strcmp(val, "blue") == 0)
-        strcpy(label_color, "34");
-      else if (strcmp(val, "magenta") == 0)
-        strcpy(label_color, "35");
-      else if (strcmp(val, "cyan") == 0)
-        strcpy(label_color, "36");
-      else if (strcmp(val, "white") == 0)
-        strcpy(label_color, "37");
-      else
-        strncpy(label_color, val, sizeof(label_color) - 1);
+      if (!set_color(val, label_color, sizeof(label_color), 0))
+        fprintf(stderr, "ffetch-3d: invalid label_color; keeping previous value\n");
       continue;
     }
     if (strncmp(line, "height=", 7) == 0) {
       char *val = line + 7;
       strip_inline_hint(val);
-      config_height = atoi(val);
+      if (!parse_nonnegative_int(val, &config_height)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric config value; keeping previous value\n");
+        continue;
+      }
       if (config_height > MAX_HEIGHT)
         config_height = MAX_HEIGHT;
       continue;
@@ -1082,7 +1154,10 @@ static void load_config(void) {
     if (strncmp(line, "size=", 5) == 0) {
       char *val = line + 5;
       strip_inline_hint(val);
-      size_scale = atof(val);
+      if (!parse_float_value(val, &size_scale)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric config value; keeping previous value\n");
+        continue;
+      }
       if (size_scale < 0.5f)
         size_scale = 0.5f;
       if (size_scale > 5.0f)
@@ -1092,7 +1167,10 @@ static void load_config(void) {
     if (strncmp(line, "speed=", 6) == 0) {
       char *val = line + 6;
       strip_inline_hint(val);
-      config_speed = atof(val);
+      if (!parse_float_value(val, &config_speed)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric config value; keeping previous value\n");
+        continue;
+      }
       continue;
     }
     if (strncmp(line, "spin=", 5) == 0) {
@@ -1130,50 +1208,24 @@ static void load_config(void) {
     if (strncmp(line, "depth=", 6) == 0) {
       char *val = line + 6;
       strip_inline_hint(val);
-      config_depth = atof(val);
+      if (!parse_float_value(val, &config_depth)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric config value; keeping previous value\n");
+        continue;
+      }
       if (config_depth < 0.1f) config_depth = 0.1f;
       if (config_depth > 10.0f) config_depth = 10.0f;
       depth_user_set = 1;
       continue;
     }
-    if (strncmp(line, "logo_outer=rgb:", 15) == 0) {
-    int r, g, b;
-    if (sscanf(line + 15, "%d:%d:%d", &r, &g, &b) == 3 &&
-        r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
-        snprintf(config_logo_outer, sizeof(config_logo_outer),
-                 "\033[38;2;%d;%d;%dm", r, g, b);
-    }
-} else if (strncmp(line, "logo_outer=", 11) == 0) {
+    if (strncmp(line, "logo_outer=", 11) == 0 ||
+        strncmp(line, "logo_inner=", 11) == 0) {
+      int outer = strncmp(line, "logo_outer=", 11) == 0;
       char *val = line + 11;
       strip_inline_hint(val);
-      if (strcmp(val, "red") == 0) snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;31m");
-      else if (strcmp(val, "green") == 0) snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;32m");
-      else if (strcmp(val, "yellow") == 0) snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;33m");
-      else if (strcmp(val, "blue") == 0) snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;34m");
-      else if (strcmp(val, "magenta") == 0) snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;35m");
-      else if (strcmp(val, "cyan") == 0) snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;36m");
-      else if (strcmp(val, "white") == 0) snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;37m");
-      else snprintf(config_logo_outer, sizeof(config_logo_outer), "\033[1;%sm", val);
-      continue;
-    }
-    if (strncmp(line, "logo_inner=rgb:", 15) == 0) {
-    int r, g, b;
-    if (sscanf(line + 15, "%d:%d:%d", &r, &g, &b) == 3 &&
-        r >= 0 && r <= 255 && g >= 0 && g <= 255 && b >= 0 && b <= 255) {
-        snprintf(config_logo_inner, sizeof(config_logo_inner),
-                 "\033[38;2;%d;%d;%dm", r, g, b);
-    }
-} else if (strncmp(line, "logo_inner=", 11) == 0) {
-      char *val = line + 11;
-      strip_inline_hint(val);
-      if (strcmp(val, "red") == 0) snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;31m");
-      else if (strcmp(val, "green") == 0) snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;32m");
-      else if (strcmp(val, "yellow") == 0) snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;33m");
-      else if (strcmp(val, "blue") == 0) snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;34m");
-      else if (strcmp(val, "magenta") == 0) snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;35m");
-      else if (strcmp(val, "cyan") == 0) snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;36m");
-      else if (strcmp(val, "white") == 0) snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;37m");
-      else snprintf(config_logo_inner, sizeof(config_logo_inner), "\033[1;%sm", val);
+      if (!set_color(val, outer ? config_logo_outer : config_logo_inner,
+                     sizeof(config_logo_outer), 1))
+        fprintf(stderr, "ffetch-3d: invalid %s; keeping previous value\n",
+                outer ? "logo_outer" : "logo_inner");
       continue;
     }
     if (strncmp(line, "light=", 6) == 0) {
@@ -1296,7 +1348,9 @@ static void load_config(void) {
       }
     }
   }
+  int ok = !ferror(fp);
   fclose(fp);
+  return ok;
 }
 
 static void add_line(const char *line) {
@@ -3980,9 +4034,9 @@ static void build_points(void) {
             // instead, as this used to, splits logos wherever their ASCII art
             // happens to change density — which is nowhere in particular.
             PCOLOR[idx] = (config_logo_outer[0] || config_logo_inner[0])
-    ? (k == 0 || k == layers - 1)
-    : (logo_has_ansi ? logo_cell_color[row][col]
-                     : (k == 0 || k == layers - 1));
+                              ? (k == 0 || k == layers - 1)
+                              : (logo_has_ansi ? logo_cell_color[row][col]
+                                               : (k == 0 || k == layers - 1));
 
             if (k == 0) {
               NX[idx] = gnx[row][col];
@@ -4125,12 +4179,23 @@ int main(int argc, char **argv) {
   const char *shading = NULL;
   const char *shading_mode = NULL;
   int box_flag = 0;
+  const char *config_path = NULL;
+  const char *cli_outer = NULL, *cli_inner = NULL;
+  const char *cli_label = NULL;
+  int cli_size_set = 0, cli_height_set = 0, cli_depth_set = 0;
+  int cli_speed_set = 0, cli_spin_set = 0;
 
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
       printf(
-          "Usage: fetch [options]\n\n"
+          "Usage: ffetch-3d [options]\n\n"
           "Options:\n"
+          "  --config <path>          Read an explicit configuration file\n"
+          "  --color <color>          Set logo surfaces and labels for this process\n"
+          "  --logo-outer <color>     Override extruded side color\n"
+          "  --logo-inner <color>     Override front/back face color\n"
+          "  --label-color <color>    Override system info label color\n"
+          "                            Colors: rgb:R:G:B, name, or SGR number 0..107\n"
           "  -l, --logo <name>         Use a logo from fastfetch by name\n"
           "                            Any logo fastfetch supports works, "
           "e.g.:\n"
@@ -4161,7 +4226,8 @@ int main(int argc, char **argv) {
           "  --box                     Draw a border box around the info block\n"
           "  -V, --version             Show version\n"
           "  -h, --help                Show this help\n\n"
-          "Config: ~/.config/fetch/config\n"
+          "Config: $XDG_CONFIG_HOME/ffetch-3d/config\n"
+          "  Defaults to ~/.config/ffetch-3d/config. CLI options override config.\n"
           "  List field names to show (in order), one per line.\n"
           "  Comment out or remove fields to hide them.\n"
           "  Available fields:\n"
@@ -4178,7 +4244,7 @@ int main(int argc, char **argv) {
           "  Settings:\n"
           "    label_color=<color>      Label color (red, green, yellow, "
           "blue,\n"
-          "                             magenta, cyan, white, or ANSI number)\n"
+          "                             magenta, cyan, white, ANSI number, or rgb:R:G:B)\n"
           "    separator=<char>         Title separator character\n"
           "    shading_mode=<mode>      ascii (default), blocks or sextants\n"
           "    shading=<str>            Shading ramp characters\n"
@@ -4191,80 +4257,118 @@ int main(int argc, char **argv) {
           "    size=<float>             Logo scale\n"
           "    height=<n>               Render height in rows\n\n"
           "    box=<0/1>                Draw a border box around the info block\n\n"
-          "Logo: ~/.config/fetch/logo.txt\n"
+          "Logo: ~/.config/ffetch-3d/logo.txt\n"
           "  Custom ASCII/Unicode logo. Add '# distro: <name>' as the\n"
           "  first line to set the color scheme.\n");
       return 0;
     } else if (strcmp(argv[i], "--version") == 0 || strcmp(argv[i], "-V") == 0) {
-      printf("fetch %s \"%s\" (%s, %s)\n", FETCH_VERSION, FETCH_CODENAME,
+      printf("FFetch-3D %s \"%s\" (%s, %s)\n", FETCH_VERSION, FETCH_CODENAME,
              FETCH_ARCH, FETCH_OS);
       return 0;
+    } else if (strcmp(argv[i], "--config") == 0 ||
+               strcmp(argv[i], "--color") == 0 ||
+               strcmp(argv[i], "--logo-outer") == 0 ||
+               strcmp(argv[i], "--logo-inner") == 0 ||
+               strcmp(argv[i], "--label-color") == 0) {
+      const char *option = argv[i];
+      if (i + 1 >= argc) {
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", option);
+        return 1;
+      }
+      const char *value = argv[++i];
+      if (strcmp(option, "--config") == 0) config_path = value;
+      else if (strcmp(option, "--color") == 0) {
+        cli_outer = cli_inner = cli_label = value;
+      } else if (strcmp(option, "--logo-outer") == 0) cli_outer = value;
+      else if (strcmp(option, "--logo-inner") == 0) cli_inner = value;
+      else cli_label = value;
     } else if (strcmp(argv[i], "--logo") == 0 || strcmp(argv[i], "-l") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
       logo_name = argv[++i];
     } else if (strcmp(argv[i], "--rotate-x") == 0) {
+      cli_spin_set = 1;
       rotate_x = 1;
       rotate_y = 0;
     } else if (strcmp(argv[i], "--rotate-y") == 0) {
+      cli_spin_set = 1;
       rotate_x = 0;
       rotate_y = 1;
     } else if (strcmp(argv[i], "--speed") == 0 || strcmp(argv[i], "-s") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      speed = atof(argv[++i]);
+      cli_speed_set = 1;
+      if (!parse_float_value(argv[++i], &speed)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "--no-info") == 0) {
       show_info = 0;
     } else if (strcmp(argv[i], "--no-color") == 0) {
       use_color = 0;
     } else if (strcmp(argv[i], "--frames") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      max_frames = atoi(argv[++i]);
+      if (!parse_nonnegative_int(argv[++i], &max_frames)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+        return 1;
+      }
     } else if (strcmp(argv[i], "--infinite") == 0) {
       max_frames = 0;
     } else if (strcmp(argv[i], "--shading-chars") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
       shading = argv[++i];
     } else if (strcmp(argv[i], "--shading-mode") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
       shading_mode = argv[++i];
     } else if (strcmp(argv[i], "--height") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      config_height = atoi(argv[++i]);
+      cli_height_set = 1;
+      if (!parse_nonnegative_int(argv[++i], &config_height)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+        return 1;
+      }
       if (config_height > MAX_HEIGHT)
         config_height = MAX_HEIGHT;
     } else if (strcmp(argv[i], "--size") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      size_scale = atof(argv[++i]);
+      cli_size_set = 1;
+      if (!parse_float_value(argv[++i], &size_scale)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+        return 1;
+      }
       if (size_scale < 0.5f)
         size_scale = 0.5f;
       if (size_scale > 5.0f)
         size_scale = 5.0f;
     } else if (strcmp(argv[i], "--depth") == 0) {
       if (i + 1 >= argc) {
-        fprintf(stderr, "fetch: option '%s' requires an argument\n", argv[i]);
+        fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      config_depth = atof(argv[++i]);
+      cli_depth_set = 1;
+      if (!parse_float_value(argv[++i], &config_depth)) {
+        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+        return 1;
+      }
       if (config_depth < 0.1f)
         config_depth = 0.1f;
       if (config_depth > 10.0f)
@@ -4273,28 +4377,40 @@ int main(int argc, char **argv) {
     } else if (strcmp(argv[i], "--box") == 0) {
       box_flag = 1;
     } else {
-      fprintf(stderr, "unknown option: %s\nTry 'fetch --help'\n", argv[i]);
+      fprintf(stderr, "unknown option: %s\nTry 'ffetch-3d --help'\n", argv[i]);
       return 1;
     }
   }
 
+  float cli_size = size_scale, cli_depth = config_depth;
+  int cli_height = config_height;
   config_defaults();
-  load_config();
+  if (!load_config(config_path))
+    return 1;
+  if (cli_size_set) size_scale = cli_size;
+  if (cli_height_set) config_height = cli_height;
+  if (cli_depth_set) { config_depth = cli_depth; depth_user_set = 1; }
+  if ((cli_outer && !set_color(cli_outer, config_logo_outer, sizeof(config_logo_outer), 1)) ||
+      (cli_inner && !set_color(cli_inner, config_logo_inner, sizeof(config_logo_inner), 1)) ||
+      (cli_label && !set_color(cli_label, label_color, sizeof(label_color), 0))) {
+    fprintf(stderr, "ffetch-3d: invalid command-line color\n");
+    return 1;
+  }
   get_term_size(&term_rows, &term_cols);
 
   // Shading: CLI flags, then config, then the ascii default
-  if (!shading && config_shading[0])
+  if (!shading && !shading_mode && config_shading[0])
     shading = config_shading;
   if (!shading_mode && config_shading_mode[0])
     shading_mode = config_shading_mode;
   if (!select_shading(shading_mode, shading)) {
-    fprintf(stderr, "unknown shading mode: %s\nTry 'fetch --help'\n",
+    fprintf(stderr, "unknown shading mode: %s\nTry 'ffetch-3d --help'\n",
             shading_mode);
     return 1;
   }
-  if (config_speed > 0 && speed == 1.0f)
+  if (config_speed > 0 && !cli_speed_set)
     speed = config_speed;
-  if (config_spin_x >= 0 && rotate_x == 1 && rotate_y == 1) {
+  if (config_spin_x >= 0 && !cli_spin_set) {
     rotate_x = config_spin_x;
     rotate_y = config_spin_y;
   }
@@ -4334,7 +4450,7 @@ int main(int argc, char **argv) {
       load_default_logo();
       if (distro[0] && strcasecmp(distro, "gentoo") != 0)
         fprintf(stderr,
-                "fetch: couldn't load %s logo (is fastfetch installed?). "
+                "ffetch-3d: couldn't load %s logo (is fastfetch installed?). "
                 "using built-in gentoo logo.\n",
                 distro);
     }
@@ -4342,7 +4458,6 @@ int main(int argc, char **argv) {
 
   // Process logo into codepoint cells
   process_logo();
-  logo_has_ansi = 0;
 
   if (distro[0])
     set_distro_colors(distro);
@@ -4720,7 +4835,7 @@ int main(int argc, char **argv) {
         }
       } else {
         int prev_color = -1;
-        for (int j = 0; j < aw && p + 16 < end; j++) {
+        for (int j = 0; j < aw && p + 36 < end; j++) {
           int c = 0;
           const char *sc = cell_glyph(i, j, smax, &c);
           if (!sc) {

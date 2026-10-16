@@ -1,0 +1,28 @@
+# FFetch-3D: copy to $XDG_CONFIG_HOME/ffetch-3d/config
+# (normally ~/.config/ffetch-3d/config). Only listed fields are displayed.
+os
+host
+kernel
+uptime
+packages
+shell
+display
+wm
+terminal
+cpu
+gpu
+memory
+disk
+battery
+colors
+
+light=top-left
+shading_mode=blocks
+spin=xy
+speed=1.0
+size=1.0
+depth=1.5
+# Try size=1.5 and height=45 in a sufficiently large terminal.
+logo_outer=rgb:0:255:255
+logo_inner=rgb:0:255:255
+label_color=rgb:0:255:255

@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
+# Fixed cyan, isolated to this process.
+set -euo pipefail
 
-CONFIG="$HOME/.config/fetch/config"
-mkdir -p "$(dirname "$CONFIG")"
-
-# Сохраняем остальные настройки
-touch "$CONFIG"
-sed -i '/^logo_outer=/d; /^logo_inner=/d; /^label_color=/d' "$CONFIG"
-
-cat >> "$CONFIG" <<'SETTINGS'
-logo_outer=rgb:0:255:255
-logo_inner=rgb:0:255:255
-label_color=rgb:0:255:255
-SETTINGS
-
-exec "$HOME/.local/bin/fetch-neon" -l arch --shading-mode blocks
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+if [[ -n ${FFETCH_3D_BIN:-} ]]; then
+  binary=$FFETCH_3D_BIN
+elif [[ -x "$script_dir/ffetch-3d" ]]; then
+  binary=$script_dir/ffetch-3d
+elif [[ -x "$script_dir/../ffetch-3d" ]]; then
+  binary=$script_dir/../ffetch-3d
+else
+  binary=ffetch-3d
+fi
+exec "$binary" -l arch --shading-mode blocks --color rgb:0:255:255 "$@"

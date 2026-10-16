@@ -1,4 +1,6 @@
 fetch
+ffetch-3d
+__pycache__/
 debian/files
 debian/.debhelper/
 debian/fetch/
