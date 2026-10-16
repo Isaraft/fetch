@@ -1,4 +1,6 @@
 #include <dirent.h>
+#include <errno.h>
+#include <sys/wait.h>
 #include <fcntl.h>
 #include <math.h>
 #include <stdint.h>
@@ -584,12 +586,49 @@ static int is_cursor_escape(const char *p) {
   return (p[i] && p[i] != 'm');
 }
 
-// Try loading a logo from fastfetch colored output
+// Read child output without invoking a shell. Logo names remain one argv item.
+static FILE *open_fastfetch_logo(const char *name, pid_t *child) {
+  int fds[2];
+  if (pipe(fds) < 0)
+    return NULL;
+  *child = fork();
+  if (*child < 0) {
+    close(fds[0]);
+    close(fds[1]);
+    return NULL;
+  }
+  if (*child == 0) {
+    close(fds[0]);
+    if (dup2(fds[1], STDOUT_FILENO) < 0)
+      _exit(127);
+    close(fds[1]);
+    int nullfd = open("/dev/null", O_WRONLY);
+    if (nullfd >= 0) {
+      dup2(nullfd, STDERR_FILENO);
+      close(nullfd);
+    }
+    execlp("fastfetch", "fastfetch", "-c", "none", "-l", name,
+           "-s", "break", "--pipe", "false", (char *)NULL);
+    _exit(127);
+  }
+  close(fds[1]);
+  FILE *fp = fdopen(fds[0], "r");
+  if (!fp) {
+    close(fds[0]);
+    while (waitpid(*child, NULL, 0) < 0 && errno == EINTR) {}
+  }
+  return fp;
+}
+
+static void close_fastfetch_logo(FILE *fp, pid_t child) {
+  fclose(fp);
+  while (waitpid(child, NULL, 0) < 0 && errno == EINTR) {}
+}
+
+// Try loading a logo from fastfetch colored output.
 static int load_logo_ff_colored(const char *name) {
-  char cmd[256];
-  snprintf(cmd, sizeof(cmd),
-           "fastfetch -c none -l %s -s break --pipe false 2>/dev/null", name);
-  FILE *fp = popen(cmd, "r");
+  pid_t child;
+  FILE *fp = open_fastfetch_logo(name, &child);
   if (!fp)
     return 0;
 
@@ -633,7 +672,7 @@ static int load_logo_ff_colored(const char *name) {
     memcpy(logo_data[logo_rows], buf, len + 1);
     logo_rows++;
   }
-  pclose(fp);
+  close_fastfetch_logo(fp, child);
 
   while (logo_rows > 0 && logo_data[logo_rows - 1][0] == '\0')
     logo_rows--;
