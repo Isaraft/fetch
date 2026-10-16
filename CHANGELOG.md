@@ -15,6 +15,9 @@
 - Strict RGB validation, bounded escape formatting, and numeric argument checks.
 - Forward launcher arguments and consistently prioritize CLI settings.
 - Preserve embedded logo colors when no surface override is configured.
+- Recompute scale and projection center together on terminal resize, retaining
+  the approved two-row offset and budgeting for it during automatic sizing.
+- Clamp alignment padding and account for stacked information layouts.
 
 ### Security
 

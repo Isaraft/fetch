@@ -4133,24 +4133,27 @@ static void set_distro_colors(const char *distro) {
 }
 
 static void get_alignment_padding(int* vertical, int* horizontal) {
-  size_t max = 0;
+  int max = 0;
   for (int i = 0; i < fetch_line_count; i++) {
-    size_t len = visible_width(fetch_lines[i]);
+    int len = visible_width(fetch_lines[i]);
     if (len > max) {
       max = len;
     }
   }
 
+  int block_rows = render_height + (stacked_info_rows ? stacked_info_rows + 1 : 0);
+  int block_cols = layout_stacked ? (anim_width > max ? anim_width : max)
+                                 : anim_width + (max ? GAP + max : 0);
   switch (config_v_alignment) {
     default:
     case V_ALIGN_TOP:
       *vertical = 0;
       break;
     case V_ALIGN_CENTER:
-      *vertical = term_rows / 2 - render_height / 2;
+      *vertical = term_rows / 2 - block_rows / 2;
       break;
     case V_ALIGN_BOTTOM:
-      *vertical = term_rows - (render_height);
+      *vertical = term_rows - (block_rows);
       break;
   }
 
@@ -4160,11 +4163,35 @@ static void get_alignment_padding(int* vertical, int* horizontal) {
       *horizontal = 0;
       break;
     case H_ALIGN_CENTER:
-      *horizontal = term_cols / 2 - (anim_width + GAP + max) / 2;
+      *horizontal = term_cols / 2 - (block_cols) / 2;
       break;
     case H_ALIGN_RIGHT:
-      *horizontal= term_cols - (anim_width + GAP + max);
+      *horizontal= term_cols - (block_cols);
       break;
+  }
+  if (*vertical < 0) *vertical = 0;
+  if (*horizontal < 0) *horizontal = 0;
+}
+
+// Shared by startup and resize. Keep the approved +2 row visual offset
+// in the render loop, and include it when budgeting the face-on canvas.
+static void update_projection(int show_info, float *k1, float *fixed_y_center) {
+  *k1 = 37.0f * logo_height / 36.0f * size_scale;
+  float face_up = 0, face_dn = 0;
+  for (int i = 0; i < POINT_COUNT; i++) {
+    float zc = PZ[i] + 5.5f;
+    if (zc < 0.1f) continue;
+    float ys = *k1 * PY[i] / zc;
+    if (ys > face_up) face_up = ys;
+    if (-ys > face_dn) face_dn = -ys;
+  }
+  *fixed_y_center = face_up + 1.0f;
+  if (config_height == 0) {
+    int logo_bottom = (int)(*fixed_y_center + 2.0f + face_dn) + 2;
+    int info_bottom = show_info ? fetch_line_count + 2 : 0;
+    int needed = logo_bottom > info_bottom ? logo_bottom : info_bottom;
+    if (needed < render_height)
+      render_height = needed;
   }
 }
 
@@ -4527,21 +4554,9 @@ int main(int argc, char **argv) {
 
   float A = 0.0f;
   float B = 0.0f;
-  float K1 = 37.0f * logo_height / 36.0f * size_scale;
+  float K1, fixed_y_center;
   const float K2 = 5.5f;
-
-  // Compute the face-on (A=0, B=0) projection extent from the point
-  // cloud. This is deterministic and sets a fixed frame height.
-  float face_up = 0, face_dn = 0;
-  for (int i = 0; i < POINT_COUNT; i++) {
-    float zc = PZ[i] + K2;
-    if (zc < 0.1f) continue;
-    float ys = K1 * PY[i] / zc;
-    if (ys > face_up) face_up = ys;
-    if (-ys > face_dn) face_dn = -ys;
-  }
-  // Place y_center so the logo top lands at row 1 (row 0 is padding)
-  float fixed_y_center = face_up + 1.0f;
+  update_projection(show_info, &K1, &fixed_y_center);
 
   // Pre-compute Blinn-Phong half-vector (view direction is constant (0,0,-1))
   const float hx0 = (light_x + 0.0f), hy0 = (light_y + 0.0f), hz0 = (light_z - 1.0f);
@@ -4554,16 +4569,6 @@ int main(int argc, char **argv) {
   atexit(cleanup);
 
   int fetch_start = show_info ? 1 : 0;
-  // Tighten render_height to fit the face-on logo + info,
-  // but not when the user explicitly set --height
-  if (config_height == 0) {
-    int logo_bottom = (int)(fixed_y_center + face_dn) + 2;
-    int info_bottom = show_info ? fetch_start + fetch_line_count + 1 : 0;
-    int needed = logo_bottom > info_bottom ? logo_bottom : info_bottom;
-    if (needed < render_height)
-      render_height = needed;
-  }
-
   if (tcgetattr(STDIN_FILENO, &orig_termios) == 0) {
     termios_saved = 1;
     struct termios raw = orig_termios;
@@ -4683,9 +4688,9 @@ int main(int argc, char **argv) {
       int old_h = render_height, old_w = anim_width;
       int old_stacked = layout_stacked, old_clip = info_clip_cols;
       apply_layout(show_info);
+      update_projection(show_info, &K1, &fixed_y_center);
       if (render_height != old_h || anim_width != old_w ||
           layout_stacked != old_stacked || info_clip_cols != old_clip) {
-        K1 = 37.0f * logo_height / 36.0f;
         printf("\033[2J");
         fflush(stdout);
       }
