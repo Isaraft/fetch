@@ -91,6 +91,21 @@ class ColorTests(unittest.TestCase):
         result = subprocess.run([str(self.binary)], env=env, capture_output=True, check=True)
         self.assertTrue(result.stdout.startswith(b"36\n"))
 
+    def test_home_fallback_ignores_legacy_config(self):
+        home = self.work / "fallback-home"
+        for namespace, color in [("fetch", "red"), ("ffetch-3d", "cyan")]:
+            path = home / ".config" / namespace / "config"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"label_color={color}\n")
+        for relative_xdg in [None, "relative/settings"]:
+            env = {**os.environ, "HOME": str(home)}
+            env.pop("XDG_CONFIG_HOME", None)
+            if relative_xdg is not None:
+                env["XDG_CONFIG_HOME"] = relative_xdg
+            result = subprocess.run([str(self.binary)], env=env, capture_output=True, check=True)
+            self.assertTrue(result.stdout.startswith(b"36\n"))
+        self.assertEqual((home / ".config/fetch/config").read_text(), "label_color=red\n")
+
     def test_missing_explicit_config_fails(self):
         result = subprocess.run([str(self.binary), str(self.work / "missing")], capture_output=True)
         self.assertEqual(result.returncode, 1)

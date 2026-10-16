@@ -127,7 +127,7 @@ class RuntimeTests(unittest.TestCase):
                 self.assertIn(b"ffetch-3d:", result.stderr)
 
     def test_staged_install_uses_separate_names(self):
-        stage = self.home / "stage"
+        stage = self.home / "stage with spaces"
         subprocess.run(["make", "install", f"DESTDIR={stage}", "PREFIX=/usr"], cwd=ROOT,
                        check=True, capture_output=True)
         bindir = stage / "usr/bin"
