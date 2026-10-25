@@ -60,6 +60,22 @@ class FetchTests(unittest.TestCase):
                     self.assertEqual(result.returncode, 0)
                     self.assertTrue(result.stdout)
 
+    def test_zero_height_selects_auto_layout(self):
+        with tempfile.TemporaryDirectory(prefix="ffetch-auto-height-") as directory:
+            home = Path(directory)
+            config_dir = home / ".config" / "ffetch-3d"
+            config_dir.mkdir(parents=True)
+            (config_dir / "logo.txt").write_text("  @@  \n@@@@@@\n  @@  \n")
+            config = config_dir / "config"
+            args = ["--no-info", "--frames", "1", "--no-color"]
+            config.write_text("")
+            automatic = self.run_fetch(args, home)
+            config.write_text("height=45\n")
+            override = self.run_fetch(args + ["--height", "0"], home)
+            self.assertEqual(automatic.returncode, 0)
+            self.assertEqual(override.returncode, 0)
+            self.assertEqual(override.stdout, automatic.stdout)
+
     def test_zero_and_negative_config_speed(self):
         with tempfile.TemporaryDirectory(prefix="fetch-test-") as directory:
             home = Path(directory)
