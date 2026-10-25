@@ -39,6 +39,8 @@ Glyph coverage depends on your terminal and font, especially for sextants.
 Build from the repository directory:
 
 ```sh
+git clone https://github.com/Isaraft/fetch.git FFetch-3D
+cd FFetch-3D
 make
 make test
 ./ffetch-3d --help
@@ -139,6 +141,9 @@ colors are 30–37 and 90–97. Other SGR values can change terminal attributes.
 
 Invalid config colors produce a diagnostic and retain the previous value.
 Invalid command-line colors fail before animation starts.
+Numeric settings must be finite and within their documented ranges; invalid
+CLI values fail instead of being silently clamped. Speed accepts −1000 to 1000,
+including zero for a stationary logo and negative values for reverse rotation.
 CLI settings override configuration. Repeated CLI colors apply in order;
 `--color` sets all three colors, while the following options affect one:
 
@@ -213,6 +218,17 @@ and [CHANGELOG.md](CHANGELOG.md).
 Large scales, extreme depth, or small terminals can still clip rotating geometry.
 The current layout preserves the established visual design; it does not compute
 a rotation-wide bounding volume. Inherited compiler warnings also remain.
+
+## Security contribution
+
+During FFetch-3D development, we identified and fixed a command-injection
+vulnerability in the inherited external-logo loading path. This finding is
+part of the fork's contribution alongside its neon rendering: the fix makes
+logo names literal subprocess arguments, backed by regression tests for
+argument handling and a missing Fastfetch executable.
+
+The work is preserved in a [dedicated security commit](https://github.com/Isaraft/fetch/commit/16cee7d1ff252d79c42fbff90776e0f72fb88b82).
+The original renderer and logo-loading feature remain credited to areofyl/fetch.
 
 ## Credits and license
 

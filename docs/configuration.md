@@ -137,7 +137,7 @@ Which axes to rotate around. `x`, `y`, or `xy` (default).
 speed=1.0
 ```
 
-Rotation speed multiplier. Higher = faster.
+Rotation speed multiplier, from -1000 to 1000. Zero holds the logo still; negative values reverse rotation. Larger magnitude = faster.
 
 ```
 size=1.0
@@ -155,7 +155,7 @@ depth=1.0
 height=36
 ```
 
-Override the render height in rows (0 means auto; positive values are capped at 200 and constrained by the terminal). Default is auto (matches the number of info lines).
+Override the render height in rows (0 means auto; positive values must be at most 200 and remain constrained by the terminal). Default is auto (matches the number of info lines).
 
 ## Extra disks
 
@@ -179,3 +179,6 @@ Up to 8 extra mount points. Each one adds a line to the info output.
 
 `v_alignment=top|center|bottom` and `h_alignment=left|center|right` control
 placement. Padding is clamped to zero when the content exceeds the terminal.
+
+Numeric settings reject non-finite and out-of-range values. Invalid config
+values are diagnosed and retain the previous value; invalid CLI values fail.

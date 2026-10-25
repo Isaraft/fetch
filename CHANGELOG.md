@@ -15,6 +15,9 @@
 
 ### Fixed
 
+- Merge upstream buffer bounds and minimal-logo fixes, retaining their tests.
+- Accept zero and reverse config speeds with bounded numeric validation.
+
 - Strict RGB validation, bounded escape formatting, and numeric argument checks.
 - Forward launcher arguments and consistently prioritize CLI settings.
 - Preserve embedded logo colors when no surface override is configured.

@@ -4,7 +4,10 @@ FFetch-3D starts from upstream commit `7b19d22` (fetch 2.3.0), followed by a
 baseline commit preserving the working local RGB customization and launchers.
 The checkout is independent of the original AUR cache; Git objects are not
 shared through alternates. The `upstream` remote tracks areofyl/fetch.
-No fork remote or public release is configured yet.
+The `origin` remote points to [Isaraft/fetch](https://github.com/Isaraft/fetch).
+The initial publication merges later upstream bounds checks and regression
+tests without rewriting either history. Upstream pushes remain disabled.
+Development used AI assistance, with local compilation and regression validation.
 
 ## Local checks
 
@@ -15,6 +18,7 @@ bash -n scripts/neonfetch scripts/arcticfetch
 git diff --check
 ```
 
+The upstream C unit tests and POSIX regressions run alongside the fork tests.
 Python tests use temporary directories, a fake Fastfetch, and POSIX pseudo
 terminals. They do not use a real user's config. Runtime tests compare frames
 after a resize with fresh frames at the target dimensions, with stationary
@@ -29,11 +33,11 @@ before and after execution.
 To run AddressSanitizer and UndefinedBehaviorSanitizer:
 
 ```sh
-make -B CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
+make -B ffetch-3d tests/shared CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer'
 ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=halt_on_error=1 \
 FFETCH_TEST_CFLAGS='-O1 -g -fsanitize=address,undefined -fno-omit-frame-pointer' \
 make test
-make -B
+make -B ffetch-3d tests/shared
 ```
 
 Leak detection is disabled in that example for environments where LeakSanitizer
@@ -62,5 +66,5 @@ unused parameters. The projection fits the face-on logo rather than every
 rotated extent, so extreme sizes and depth can still clip.
 
 Inherited legacy package recipes are retained separately for reference rather
-than presented as supported installers. A future release needs a confirmed
-repository URL and maintainer metadata before those recipes can be activated.
+than presented as supported installers. A future release needs updated
+repository URLs and maintainer metadata before those recipes can be activated.
