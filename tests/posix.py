@@ -1,0 +1,132 @@
+import os
+import platform
+from pathlib import Path
+import subprocess
+import tempfile
+import unittest
+
+
+EXECUTABLE = Path(__file__).resolve().parents[1] / "ffetch-3d"
+
+
+class FetchTests(unittest.TestCase):
+    def run_fetch(self, args, home=None):
+        env = os.environ.copy()
+        if home:
+            env["HOME"] = str(home)
+            env["XDG_CONFIG_HOME"] = str(home / ".config")
+        return subprocess.run(
+            [str(EXECUTABLE), *args], env=env, capture_output=True, timeout=10
+        )
+
+    def test_help_and_version(self):
+        self.assertIn(b"Usage:", self.run_fetch(["--help"]).stdout)
+        self.assertIn(platform.system().encode(), self.run_fetch(["--version"]).stdout)
+
+    def test_invalid_arguments(self):
+        for args in [
+            ["--frames", "-1"], ["--frames", "junk"], ["--frames", "2147483648"],
+            ["--frames", "1.5"], ["--height", "-1"], ["--height", "201"],
+            ["--size", "nan"], ["--size", "0.4"], ["--size", "5.1"],
+            ["--depth", "inf"], ["--depth", "0"], ["--depth", "10.1"],
+            ["--speed", "1junk"], ["--speed", "1e9999"], ["--speed", "1001"],
+            ["--logo"], ["--unknown"],
+        ]:
+            with self.subTest(args=args):
+                result = self.run_fetch(args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertTrue(result.stderr)
+
+    def test_shading_and_cli_precedence(self):
+        with tempfile.TemporaryDirectory(prefix="fetch-test-") as directory:
+            home = Path(directory)
+            config_dir = home / ".config" / "ffetch-3d"
+            config_dir.mkdir(parents=True)
+            (config_dir / "logo.txt").write_text("  @@  \n@@@@@@\n  @@  \n", encoding="utf-8")
+            config = config_dir / "config"
+            config.write_text("size=1\ndepth=1\nspeed=1\nheight=20\n")
+            args = ["--no-info", "--frames", "3", "--no-color"]
+            baseline = self.run_fetch(args, home)
+            self.assertEqual(baseline.returncode, 0)
+            self.assertNotIn(b"\x00", baseline.stdout)
+            config.write_text("size=2\ndepth=2\nspeed=2\nheight=30\n")
+            override = self.run_fetch(
+                args + ["--size", "1", "--depth", "1", "--speed", "1", "--height", "20"], home
+            )
+            self.assertEqual(override.stdout, baseline.stdout)
+            for mode in ["ascii", "blocks", "sextants"]:
+                with self.subTest(mode=mode):
+                    result = self.run_fetch(args + ["--shading-mode", mode], home)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertTrue(result.stdout)
+
+    def test_zero_and_negative_config_speed(self):
+        with tempfile.TemporaryDirectory(prefix="fetch-test-") as directory:
+            home = Path(directory)
+            config_dir = home / ".config" / "ffetch-3d"
+            config_dir.mkdir(parents=True)
+            (config_dir / "logo.txt").write_text("  @@  \n@@@@@@\n  @@  \n")
+            config = config_dir / "config"
+            args = ["--no-info", "--frames", "3", "--no-color"]
+            for speed in ["0", "-20"]:
+                with self.subTest(speed=speed):
+                    config.write_text("speed=20\n")
+                    baseline = self.run_fetch(args + ["--speed", speed], home)
+                    config.write_text(f"speed={speed}\n")
+                    configured = self.run_fetch(args, home)
+                    self.assertEqual(baseline.returncode, 0)
+                    self.assertEqual(configured.returncode, 0)
+                    self.assertEqual(configured.stdout, baseline.stdout)
+
+    def test_rotation_cli_precedence(self):
+        with tempfile.TemporaryDirectory(prefix="fetch-test-") as directory:
+            home = Path(directory)
+            config_dir = home / ".config" / "ffetch-3d"
+            config_dir.mkdir(parents=True)
+            (config_dir / "logo.txt").write_text("  @@  \n@@@@@@\n  @@  \n")
+            config = config_dir / "config"
+            args = ["--no-info", "--frames", "3", "--no-color", "--speed", "20"]
+            for axis, config_axis in [("x", "y"), ("y", "x")]:
+                with self.subTest(axis=axis):
+                    config.write_text("")
+                    baseline = self.run_fetch(args + [f"--rotate-{axis}"], home)
+                    config.write_text(f"spin={config_axis}\n")
+                    override = self.run_fetch(args + [f"--rotate-{axis}"], home)
+                    self.assertEqual(baseline.returncode, 0)
+                    self.assertEqual(override.returncode, 0)
+                    self.assertEqual(override.stdout, baseline.stdout)
+
+    def test_invalid_config_numbers(self):
+        with tempfile.TemporaryDirectory(prefix="fetch-test-") as directory:
+            home = Path(directory)
+            config_dir = home / ".config" / "ffetch-3d"
+            config_dir.mkdir(parents=True)
+            (config_dir / "logo.txt").write_text("  @@  \n@@@@@@\n  @@  \n")
+            config = config_dir / "config"
+            args = ["--no-info", "--frames", "3", "--no-color"]
+            baseline = self.run_fetch(args, home)
+            self.assertEqual(baseline.returncode, 0)
+            for key, value in [("height", "201"), ("size", "nan"),
+                               ("depth", "inf"), ("speed", "1junk")]:
+                with self.subTest(key=key):
+                    config.write_text(f"{key}={value}\n")
+                    result = self.run_fetch(args, home)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertIn(key.encode(), result.stderr)
+                    self.assertEqual(result.stdout, baseline.stdout)
+
+    def test_minimal_logos(self):
+        with tempfile.TemporaryDirectory(prefix="fetch-test-") as directory:
+            home = Path(directory)
+            config_dir = home / ".config" / "ffetch-3d"
+            config_dir.mkdir(parents=True)
+            for logo in ["@\n", "@@@\n", "@\n@\n@\n"]:
+                with self.subTest(logo=logo):
+                    (config_dir / "logo.txt").write_text(logo)
+                    result = self.run_fetch(["--no-info", "--frames", "1"], home)
+                    self.assertEqual(result.returncode, 0)
+                    self.assertTrue(result.stdout)
+
+
+if __name__ == "__main__":
+    unittest.main()

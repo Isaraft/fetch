@@ -97,6 +97,35 @@ static int term_rows = 0;
 #define FETCH_VERSION "dev"
 #endif
 
+static int parse_number(const char *option, const char *text, float min,
+                        float max, float *out) {
+  char *end;
+  errno = 0;
+  float value = strtof(text, &end);
+  if (end == text || *end || errno == ERANGE || !isfinite(value) ||
+      value < min || value > max) {
+    fprintf(stderr, "ffetch-3d: %s requires a finite number from %g to %g (got '%s')\n",
+            option, min, max, text);
+    return 0;
+  }
+  *out = value;
+  return 1;
+}
+
+static int parse_integer(const char *option, const char *text, int min,
+                         int max, int *out) {
+  char *end;
+  errno = 0;
+  long value = strtol(text, &end, 10);
+  if (end == text || *end || errno == ERANGE || value < min || value > max) {
+    fprintf(stderr, "ffetch-3d: %s requires an integer from %d to %d (got '%s')\n",
+            option, min, max, text);
+    return 0;
+  }
+  *out = (int)value;
+  return 1;
+}
+
 // --- UTF-8 helpers ---
 
 // Returns byte length of a UTF-8 sequence from its leading byte
@@ -959,7 +988,8 @@ static int is_refresh_pass = 0;     // 1 during the animation refresh tick
 static char label_color[32] = "35"; // default magenta
 static int config_height = 0;       // 0 = auto (match info lines)
 static float size_scale = 1.0f;
-static float config_speed = 0.0f; // 0 = use flag/default
+static float config_speed = 0.0f;
+static int config_speed_set = 0;
 static int config_spin_x = -1;    // -1 = use flag/default
 static int config_spin_y = -1;
 static int config_box = 0;        // 0 = off (default), 1 = on
@@ -1079,28 +1109,6 @@ static int set_color(const char *value, char *out, size_t cap, int logo) {
   return 1;
 }
 
-static int parse_float_value(const char *value, float *out) {
-  char *end;
-  errno = 0;
-  float n = strtof(value, &end);
-  if (!*value || *end || errno == ERANGE || !isfinite(n))
-    return 0;
-  *out = n;
-  return 1;
-}
-
-static int parse_nonnegative_int(const char *value, int *out) {
-  if (*value < '0' || *value > '9')
-    return 0;
-  char *end;
-  errno = 0;
-  long n = strtol(value, &end, 10);
-  if (*end || errno == ERANGE || n > INT_MAX)
-    return 0;
-  *out = (int)n;
-  return 1;
-}
-
 static int load_config(const char *requested_path) {
   char path[512];
   if (!requested_path && !default_config_path(path, sizeof(path), "config"))
@@ -1143,34 +1151,20 @@ static int load_config(const char *requested_path) {
     if (strncmp(line, "height=", 7) == 0) {
       char *val = line + 7;
       strip_inline_hint(val);
-      if (!parse_nonnegative_int(val, &config_height)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric config value; keeping previous value\n");
-        continue;
-      }
-      if (config_height > MAX_HEIGHT)
-        config_height = MAX_HEIGHT;
+      parse_integer("height", val, 0, MAX_HEIGHT, &config_height);
       continue;
     }
     if (strncmp(line, "size=", 5) == 0) {
       char *val = line + 5;
       strip_inline_hint(val);
-      if (!parse_float_value(val, &size_scale)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric config value; keeping previous value\n");
-        continue;
-      }
-      if (size_scale < 0.5f)
-        size_scale = 0.5f;
-      if (size_scale > 5.0f)
-        size_scale = 5.0f;
+      parse_number("size", val, 0.5f, 5.0f, &size_scale);
       continue;
     }
     if (strncmp(line, "speed=", 6) == 0) {
       char *val = line + 6;
       strip_inline_hint(val);
-      if (!parse_float_value(val, &config_speed)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric config value; keeping previous value\n");
-        continue;
-      }
+      if (parse_number("speed", val, -1000.0f, 1000.0f, &config_speed))
+        config_speed_set = 1;
       continue;
     }
     if (strncmp(line, "spin=", 5) == 0) {
@@ -1208,13 +1202,8 @@ static int load_config(const char *requested_path) {
     if (strncmp(line, "depth=", 6) == 0) {
       char *val = line + 6;
       strip_inline_hint(val);
-      if (!parse_float_value(val, &config_depth)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric config value; keeping previous value\n");
-        continue;
-      }
-      if (config_depth < 0.1f) config_depth = 0.1f;
-      if (config_depth > 10.0f) config_depth = 10.0f;
-      depth_user_set = 1;
+      if (parse_number("depth", val, 0.1f, 10.0f, &config_depth))
+        depth_user_set = 1;
       continue;
     }
     if (strncmp(line, "logo_outer=", 11) == 0 ||
@@ -1396,6 +1385,8 @@ static void add_info(const char *label, const char *fmt, ...) {
     fetch_lines[idx][MAX_LINE_LEN - 1] = '\0';
     return;
   }
+  if (fetch_line_count >= MAX_FETCH_LINES)
+    return;
   if (current_field >= 0)
     field_line[current_field] = fetch_line_count;
   add_line(line);
@@ -1416,12 +1407,19 @@ static void box_wrap_lines(void) {
     if (w > max_w)
       max_w = w;
   }
+  if (max_w > (MAX_LINE_LEN - 16) / 3)
+    max_w = (MAX_LINE_LEN - 16) / 3;
   box_width = max_w;
 
   char content[MAX_FETCH_LINES][MAX_LINE_LEN];
   int content_count = fetch_line_count - start;
-  for (int i = 0; i < content_count; i++)
-    strncpy(content[i], fetch_lines[start + i], MAX_LINE_LEN - 1);
+  if (content_count > MAX_FETCH_LINES - start - 2)
+    content_count = MAX_FETCH_LINES - start - 2;
+  for (int i = 0; i < content_count; i++) {
+    char *p = emit_clipped(content[i], content[i] + MAX_LINE_LEN - 1,
+                           fetch_lines[start + i], max_w);
+    *p = '\0';
+  }
 
   char border[MAX_LINE_LEN];
   char *bp = border;
@@ -1451,8 +1449,12 @@ static void box_wrap_lines(void) {
   fetch_line_count = out;
 
   for (int i = 0; i < F_COUNT; i++)
-    if (field_line[i] >= start)
-      field_line[i] += 1;
+    if (field_line[i] >= start) {
+      if (field_line[i] < start + content_count)
+        field_line[i] += 1;
+      else
+        field_line[i] = -1;
+    }
 }
 
 // Runs `<bin> --version` and extracts the first version-looking token
@@ -3935,16 +3937,16 @@ static void build_points(void) {
       float dhdx = 0, dhdy = 0;
       if (c > 0 && c < logo_cols - 1)
         dhdx = (hmap[r][c + 1] - hmap[r][c - 1]) * 0.5f;
-      else if (c == 0)
+      else if (c == 0 && logo_cols > 1)
         dhdx = hmap[r][c + 1] - hmap[r][c];
-      else
+      else if (c > 0)
         dhdx = hmap[r][c] - hmap[r][c - 1];
 
       if (r > 0 && r < logo_rows - 1)
         dhdy = (hmap[r + 1][c] - hmap[r - 1][c]) * 0.5f;
-      else if (r == 0)
+      else if (r == 0 && logo_rows > 1)
         dhdy = hmap[r + 1][c] - hmap[r][c];
-      else
+      else if (r > 0)
         dhdy = hmap[r][c] - hmap[r - 1][c];
 
       dhdx /= sx;
@@ -4329,10 +4331,8 @@ int main(int argc, char **argv) {
         return 1;
       }
       cli_speed_set = 1;
-      if (!parse_float_value(argv[++i], &speed)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+      if (!parse_number("--speed", argv[++i], -1000.0f, 1000.0f, &speed))
         return 1;
-      }
     } else if (strcmp(argv[i], "--no-info") == 0) {
       show_info = 0;
     } else if (strcmp(argv[i], "--no-color") == 0) {
@@ -4342,10 +4342,8 @@ int main(int argc, char **argv) {
         fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
-      if (!parse_nonnegative_int(argv[++i], &max_frames)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+      if (!parse_integer("--frames", argv[++i], 0, INT_MAX, &max_frames))
         return 1;
-      }
     } else if (strcmp(argv[i], "--infinite") == 0) {
       max_frames = 0;
     } else if (strcmp(argv[i], "--shading-chars") == 0) {
@@ -4366,40 +4364,24 @@ int main(int argc, char **argv) {
         return 1;
       }
       cli_height_set = 1;
-      if (!parse_nonnegative_int(argv[++i], &config_height)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+      if (!parse_integer("--height", argv[++i], 0, MAX_HEIGHT, &config_height))
         return 1;
-      }
-      if (config_height > MAX_HEIGHT)
-        config_height = MAX_HEIGHT;
     } else if (strcmp(argv[i], "--size") == 0) {
       if (i + 1 >= argc) {
         fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
       cli_size_set = 1;
-      if (!parse_float_value(argv[++i], &size_scale)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+      if (!parse_number("--size", argv[++i], 0.5f, 5.0f, &size_scale))
         return 1;
-      }
-      if (size_scale < 0.5f)
-        size_scale = 0.5f;
-      if (size_scale > 5.0f)
-        size_scale = 5.0f;
     } else if (strcmp(argv[i], "--depth") == 0) {
       if (i + 1 >= argc) {
         fprintf(stderr, "ffetch-3d: option '%s' requires an argument\n", argv[i]);
         return 1;
       }
       cli_depth_set = 1;
-      if (!parse_float_value(argv[++i], &config_depth)) {
-        fprintf(stderr, "ffetch-3d: invalid numeric command-line value\n");
+      if (!parse_number("--depth", argv[++i], 0.1f, 10.0f, &config_depth))
         return 1;
-      }
-      if (config_depth < 0.1f)
-        config_depth = 0.1f;
-      if (config_depth > 10.0f)
-        config_depth = 10.0f;
       depth_user_set = 1;
     } else if (strcmp(argv[i], "--box") == 0) {
       box_flag = 1;
@@ -4435,7 +4417,7 @@ int main(int argc, char **argv) {
             shading_mode);
     return 1;
   }
-  if (config_speed > 0 && !cli_speed_set)
+  if (config_speed_set && !cli_speed_set)
     speed = config_speed;
   if (config_spin_x >= 0 && !cli_spin_set) {
     rotate_x = config_spin_x;

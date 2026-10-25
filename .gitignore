@@ -6,3 +6,4 @@ packaging/upstream/debian/.debhelper/
 packaging/upstream/debian/fetch/
 packaging/upstream/debian/*.substvars
 packaging/upstream/debian/*.debhelper.log
+tests/shared

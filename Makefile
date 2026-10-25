@@ -24,10 +24,15 @@ install: ffetch-3d
 	install -d "$(DESTDIR)$(PREFIX)/share/doc/ffetch-3d"
 	install -m 644 LICENSE README.md examples/config "$(DESTDIR)$(PREFIX)/share/doc/ffetch-3d/"
 
-test: ffetch-3d
+test: ffetch-3d tests/shared
+	./tests/shared
+	$(PYTHON) tests/posix.py
 	$(PYTHON) -m unittest discover -s tests -v
 
 clean:
-	rm -f ffetch-3d
+	rm -f ffetch-3d tests/shared
+
+tests/shared: tests/shared.c fetch.c
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $< $(LDLIBS)
 
 .PHONY: install clean test
